@@ -69,7 +69,7 @@ const ButtonsContainer = styled.div`
   margin-top: 1.5rem;
 `;
 
-const AudioUploader = ({ onFileSelect }) => {
+const AudioUploader = ({ onFileSelect, description, submitButtonText, showRecordButton = true }) => {
   const [selectedFile, setSelectedFile] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
@@ -185,7 +185,7 @@ const AudioUploader = ({ onFileSelect }) => {
 
   return (
     <UploaderContainer>
-      <h3 className="mb-4">Tải lên hoặc ghi âm</h3>
+      <h3 className="mb-4">{description || 'Tải lên hoặc ghi âm'}</h3>
       
       {!selectedFile && (
         <FileInputWrapper 
@@ -224,17 +224,19 @@ const AudioUploader = ({ onFileSelect }) => {
         </>
       )}
       
-      <RecordButton 
-        variant={isRecording ? "danger" : "primary"} 
-        size="lg" 
-        block 
-        onClick={handleRecordClick}
-        isRecording={isRecording}
-        disabled={selectedFile && !isRecording}
-      >
-        <FaMicrophone className="me-2" />
-        {isRecording ? `Đang ghi âm ${formatTime(recordingTime)}` : "Ghi âm"}
-      </RecordButton>
+      {showRecordButton && (
+        <RecordButton 
+          variant={isRecording ? "danger" : "primary"} 
+          size="lg" 
+          block 
+          onClick={handleRecordClick}
+          isRecording={isRecording}
+          disabled={selectedFile && !isRecording}
+        >
+          <FaMicrophone className="me-2" />
+          {isRecording ? `Đang ghi âm ${formatTime(recordingTime)}` : "Ghi âm"}
+        </RecordButton>
+      )}
       
       <ButtonsContainer>
         <Button 
@@ -243,7 +245,7 @@ const AudioUploader = ({ onFileSelect }) => {
           disabled={!selectedFile || uploadProgress < 100} 
           onClick={submitFile}
         >
-          Chuyển đổi thành văn bản
+          {submitButtonText || "Chuyển đổi thành văn bản"}
         </Button>
       </ButtonsContainer>
     </UploaderContainer>

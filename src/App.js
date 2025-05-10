@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Container, Row, Col, Navbar, Nav } from 'react-bootstrap';
+import { Container, Row, Col, Navbar, Nav, Tabs, Tab, Button } from 'react-bootstrap';
 import { ToastContainer, toast } from 'react-toastify';
 import styled, { createGlobalStyle } from 'styled-components';
-import { FaMicrophone } from 'react-icons/fa';
+import { FaMicrophone, FaScissors } from 'react-icons/fa';
 import AudioUploader from './components/AudioUploader';
 import TranscriptionOutput from './components/TranscriptionOutput';
+import AudioTrimmer from './components/AudioTrimmer';
 import { convertSpeechToText } from './services/api';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'react-toastify/dist/ReactToastify.css';
@@ -80,6 +81,31 @@ const Logo = styled.div`
   }
 `;
 
+const TabsStyled = styled(Tabs)`
+  border-bottom: none;
+  margin-bottom: 2rem;
+  
+  .nav-link {
+    color: #a0a0a0;
+    border: none;
+    padding: 0.75rem 1.25rem;
+    border-radius: 0.5rem 0.5rem 0 0;
+    margin-right: 0.5rem;
+    background-color: transparent;
+    
+    &:hover {
+      color: #f1f1f2;
+      border-color: transparent;
+    }
+    
+    &.active {
+      color: #f1f1f2;
+      background-color: #1e1e2e;
+      border-color: transparent;
+    }
+  }
+`;
+
 const Footer = styled.footer`
   text-align: center;
   padding: 2rem 0;
@@ -100,8 +126,19 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [transcription, setTranscription] = useState(null);
   const [error, setError] = useState(null);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [activeTab, setActiveTab] = useState('speech-to-text');
   
   const handleFileSelect = async (file) => {
+    setSelectedFile(file);
+    
+    // Nếu đang ở tab cắt, hiển thị AudioTrimmer ngay lập tức
+    if (activeTab === 'trim') {
+      console.log('File đã chọn cho tab cắt:', file.name);
+      return;
+    }
+    
+    // Xử lý chuyển đổi speech-to-text
     try {
       setLoading(true);
       setError(null);
@@ -152,6 +189,22 @@ function App() {
     }
   };
   
+  const handleTrimmedAudio = (trimmedFile) => {
+    setSelectedFile(trimmedFile);
+    toast.success('Đã cắt audio thành công!', {
+      position: "top-right",
+      autoClose: 3000
+    });
+  };
+  
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    // Reset trạng thái khi chuyển tab nếu cần
+    if (tab === 'speech-to-text' && selectedFile) {
+      handleFileSelect(selectedFile);
+    }
+  };
+  
   return (
     <>
       <GlobalStyle />
@@ -175,18 +228,62 @@ function App() {
       </NavbarStyled>
       
       <MainContainer>
-        <Row>
-          <Col lg={6}>
-            <AudioUploader onFileSelect={handleFileSelect} />
-          </Col>
-          <Col lg={6}>
-            <TranscriptionOutput 
-              transcription={transcription} 
-              loading={loading} 
-              error={error} 
-            />
-          </Col>
-        </Row>
+        <TabsStyled 
+          activeKey={activeTab} 
+          onSelect={handleTabChange}
+        >
+          <Tab eventKey="speech-to-text" title="Chuyển đổi Speech to Text">
+            <Row>
+              <Col lg={6}>
+                <AudioUploader 
+                  onFileSelect={handleFileSelect} 
+                  submitButtonText="Chuyển đổi thành văn bản"
+                />
+              </Col>
+              <Col lg={6}>
+                <TranscriptionOutput 
+                  transcription={transcription} 
+                  loading={loading} 
+                  error={error} 
+                />
+              </Col>
+            </Row>
+          </Tab>
+          <Tab eventKey="trim" title="Cắt Audio/Video">
+            <Row>
+              <Col lg={12}>
+                {selectedFile ? (
+                  <>
+                    <div className="mb-3 p-3" style={{ backgroundColor: '#1e1e2e', borderRadius: '8px' }}>
+                      <h5 className="mb-2">File đã chọn:</h5>
+                      <div className="d-flex align-items-center justify-content-between">
+                        <span>{selectedFile.name} ({(selectedFile.size / 1024 / 1024).toFixed(2)} MB)</span>
+                        <Button 
+                          variant="outline-danger" 
+                          size="sm"
+                          onClick={() => setSelectedFile(null)}
+                        >
+                          Chọn file khác
+                        </Button>
+                      </div>
+                    </div>
+                    <AudioTrimmer 
+                      audioFile={selectedFile}
+                      onSaveTrimmed={handleTrimmedAudio}
+                    />
+                  </>
+                ) : (
+                  <AudioUploader 
+                    onFileSelect={handleFileSelect} 
+                    description="Tải lên file âm thanh/video để cắt"
+                    submitButtonText="Tiếp tục để cắt"
+                    showRecordButton={false}
+                  />
+                )}
+              </Col>
+            </Row>
+          </Tab>
+        </TabsStyled>
         
         <Footer>
           <p>

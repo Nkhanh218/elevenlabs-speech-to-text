@@ -282,8 +282,10 @@ const FullscreenContainer = styled.div`
   position: fixed;
   top: 0;
   left: 0;
-  width: 100vw;
-  height: 100vh;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: 100%;
   background-color: #1e1e2e;
   z-index: 9999;
   overflow: hidden;
@@ -519,20 +521,42 @@ const TranscriptionOutput = ({
   
   // Hàm xử lý bật/tắt chế độ toàn màn hình
   const toggleFullscreen = () => {
-    setIsFullscreen(!isFullscreen);
-    
-    // Khi chuyển sang chế độ toàn màn hình, đảm bảo scroll lên đầu nội dung
-    if (!isFullscreen && fullscreenContentRef.current) {
-      setTimeout(() => {
-        fullscreenContentRef.current.scrollTop = 0;
-      }, 100);
-    }
-    
-    // Xử lý scroll cho body
-    if (!isFullscreen) {
-      document.body.style.overflow = 'hidden'; // Ngăn scroll khi ở chế độ fullscreen
-    } else {
-      document.body.style.overflow = ''; // Trả lại scroll bình thường
+    try {
+      // Đảm bảo dữ liệu có tồn tại trước khi chuyển sang chế độ toàn màn hình
+      if (!transcription && !isFullscreen) {
+        console.error('Không thể mở toàn màn hình: Thiếu dữ liệu transcription');
+        return;
+      }
+      
+      // Chuyển đổi trạng thái fullscreen
+      setIsFullscreen(prevState => !prevState);
+      
+      // Xử lý scroll cho body
+      if (!isFullscreen) {
+        document.body.style.overflow = 'hidden'; // Ngăn scroll khi ở chế độ fullscreen
+        
+        // Khi chuyển sang chế độ toàn màn hình, đảm bảo scroll lên đầu nội dung
+        // Sử dụng timeout để đảm bảo DOM đã cập nhật
+        setTimeout(() => {
+          if (fullscreenContentRef.current) {
+            fullscreenContentRef.current.scrollTop = 0;
+          }
+        }, 200);
+      } else {
+        document.body.style.overflow = ''; // Trả lại scroll bình thường
+      }
+      
+      // Cập nhật lại kích thước nếu có audio player
+      if (audioRef.current) {
+        setTimeout(() => {
+          const event = new Event('resize');
+          window.dispatchEvent(event);
+        }, 300);
+      }
+    } catch (error) {
+      console.error('Lỗi khi chuyển đổi chế độ toàn màn hình:', error);
+      // Đảm bảo trạng thái body được khôi phục
+      document.body.style.overflow = '';
     }
   };
 
@@ -1342,14 +1366,27 @@ const TranscriptionOutput = ({
       <OutputContainer>
         <div className="d-flex justify-content-between align-items-center mb-3">
           <h3>Kết quả chuyển đổi</h3>
-          <div>
-            <Badge bg="primary" className="me-2">
-              {transcription?.language_code?.toUpperCase() || 'N/A'}
-            </Badge>
-            {transcription?.language_probability && (
-              <Badge bg="info">
-                Độ tin cậy: {Math.round(transcription.language_probability * 100)}%
+          <div className="d-flex align-items-center">
+            <div className="me-3">
+              <Badge bg="primary" className="me-2">
+                {transcription?.language_code?.toUpperCase() || 'N/A'}
               </Badge>
+              {transcription?.language_probability && (
+                <Badge bg="info">
+                  Độ tin cậy: {Math.round(transcription.language_probability * 100)}%
+                </Badge>
+              )}
+            </div>
+            {transcription && (
+              <Button 
+                variant="outline-primary" 
+                size="sm"
+                onClick={toggleFullscreen}
+                className="d-flex align-items-center"
+                style={{ height: '34px' }}
+              >
+                <FaExpand className="me-1" /> Toàn màn hình
+              </Button>
             )}
           </div>
         </div>
@@ -1487,50 +1524,34 @@ const TranscriptionOutput = ({
           </AudioPlayerContainer>
         )}
         
-        <ButtonsContainer>
-          <Button 
-            variant="outline-primary" 
-            onClick={copyToClipboard}
-            disabled={!transcription || !transcription.text}
-          >
-            {copied ? <><FaCheck /> Đã sao chép</> : <><FaCopy /> Sao chép</>}
-          </Button>
-          
-          <Button 
-            variant="outline-secondary" 
-            onClick={downloadTranscription}
-            disabled={!transcription || !transcription.text}
-          >
-            <FaDownload /> Tải xuống
-          </Button>
-          
-          <Button 
-            variant={editMode ? "success" : "outline-info"} 
-            onClick={editMode ? saveEditedText : toggleEditMode}
-            disabled={!transcription}
-          >
-            {editMode ? <><FaSave /> Lưu</> : <><FaEdit /> Chỉnh sửa</>}
-          </Button>
-          
-          {displayMode === 'words' && (
-            <Button 
-              variant="outline-warning" 
-              onClick={() => setHighlightedWords([])}
-              disabled={highlightedWords.length === 0}
-            >
-              <FaHighlighter /> Xóa đánh dấu
+        {transcription && (
+          <ButtonsContainer>
+            <Button variant="outline-primary" onClick={copyToClipboard} disabled={!transcription.text}>
+              {copied ? <><FaCheck /> Đã sao chép</> : <><FaCopy /> Sao chép</>}
             </Button>
-          )}
-          
-          {/* Thêm nút xem toàn màn hình với xử lý sự kiện riêng biệt */}
-          <Button 
-            variant="outline-dark" 
-            onClick={toggleFullscreen}
-            disabled={!transcription}
-          >
-            <FaExpand /> Toàn màn hình
-          </Button>
-        </ButtonsContainer>
+            
+            <Button variant="outline-secondary" onClick={downloadTranscription} disabled={!transcription.text}>
+              <FaDownload /> Tải xuống
+            </Button>
+            
+            <Button 
+              variant={editMode ? "success" : "outline-info"}
+              onClick={editMode ? saveEditedText : toggleEditMode}
+            >
+              {editMode ? <><FaSave /> Lưu</> : <><FaEdit /> Chỉnh sửa</>}
+            </Button>
+            
+            {displayMode === 'words' && (
+              <Button 
+                variant="outline-warning"
+                onClick={() => setHighlightedWords([])}
+                disabled={highlightedWords.length === 0}
+              >
+                <FaHighlighter /> Xóa đánh dấu
+              </Button>
+            )}
+          </ButtonsContainer>
+        )}
       </OutputContainer>
       
       {/* Toast notifications */}

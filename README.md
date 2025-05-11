@@ -1,3 +1,37 @@
+# ElevenLabs Speech-to-Text App
+
+Ứng dụng web chuyển đổi giọng nói thành văn bản sử dụng ElevenLabs API.
+
+## Cài đặt
+
+1. Clone repo này
+2. Cài đặt các phụ thuộc: `npm install`
+3. Tạo file `.env` trong thư mục gốc của dự án và thêm API key của bạn:
+```
+REACT_APP_ELEVENLABS_API_KEY=your_api_key_here
+```
+4. Lấy API key từ trang: https://elevenlabs.io/app/account 
+5. Khởi chạy ứng dụng: `npm start`
+
+## Các tính năng
+
+- Tải lên tệp âm thanh
+- Ghi âm trực tiếp
+- Chuyển đổi giọng nói thành văn bản với ElevenLabs API
+- Hiển thị kết quả phiên âm với định dạng hội thoại
+- Phát âm thanh và đánh dấu từ đang phát
+- Chế độ toàn màn hình
+- Sao chép kết quả
+
+## Xử lý lỗi
+
+Nếu bạn nhận được lỗi 422 (Unprocessable Content), hãy kiểm tra:
+
+1. API key đã được cấu hình đúng trong file .env
+2. Định dạng file âm thanh được hỗ trợ (MP3, WAV, M4A, FLAC)
+3. Kích thước file không vượt quá giới hạn của API
+4. Kiểm tra tài khoản ElevenLabs có đủ credit
+
 # Getting Started with Create React App
 
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).

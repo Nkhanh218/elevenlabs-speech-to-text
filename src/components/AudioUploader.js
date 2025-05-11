@@ -1,7 +1,9 @@
 import React, { useState, useRef } from 'react';
-import { FaMicrophone, FaFileUpload, FaTrash } from 'react-icons/fa';
+import { FaMicrophone, FaFileUpload, FaTrash, FaUpload, FaPlay, FaPause } from 'react-icons/fa';
 import styled from 'styled-components';
-import { Button, ProgressBar, Form } from 'react-bootstrap';
+import { Button, ProgressBar, Form, Alert, Spinner } from 'react-bootstrap';
+import AudioRecorder from './AudioRecorder';
+import axios from 'axios';
 
 const UploaderContainer = styled.div`
   background-color: #1e1e2e;
@@ -69,186 +71,286 @@ const ButtonsContainer = styled.div`
   margin-top: 1.5rem;
 `;
 
-const AudioUploader = ({ onFileSelect, description, submitButtonText, showRecordButton = true }) => {
+const UploadForm = styled.div`
+  margin-bottom: 2rem;
+`;
+
+const FileInput = styled(Form.Control)`
+  background-color: #2d2d42;
+  border: 1px dashed #6c5ce7;
+  padding: 3rem;
+  text-align: center;
+  color: #f1f1f2;
+  cursor: pointer;
+  
+  &:hover {
+    background-color: #353558;
+  }
+`;
+
+const ButtonContainer = styled.div`
+  display: flex;
+  gap: 1rem;
+  margin-top: 1rem;
+`;
+
+const StyledProgressBar = styled(ProgressBar)`
+  height: 0.8rem;
+  border-radius: 8px;
+  margin-top: 1rem;
+`;
+
+const AudioUploader = ({ onFileSelect, onTranscriptionComplete, submitButtonText = "Chuyển đổi thành văn bản" }) => {
   const [selectedFile, setSelectedFile] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
-  const [recordingTime, setRecordingTime] = useState(0);
-  const [mediaRecorder, setMediaRecorder] = useState(null);
+  const [recordedAudio, setRecordedAudio] = useState(null);
+  const [isPlaying, setIsPlaying] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [error, setError] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [audioUrl, setAudioUrl] = useState(null);
+  
   const fileInputRef = useRef(null);
+  const audioRef = useRef(null);
   const timerRef = useRef(null);
   const audioChunksRef = useRef([]);
 
-  const handleFileSelect = (event) => {
-    const file = event.target.files[0];
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
     if (file) {
       setSelectedFile(file);
-      // Mô phỏng việc upload
-      simulateUpload();
-    }
-  };
-
-  const simulateUpload = () => {
-    setUploadProgress(0);
-    const interval = setInterval(() => {
-      setUploadProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          return 100;
-        }
-        return prev + 10;
-      });
-    }, 200);
-  };
-
-  const handleDragOver = (event) => {
-    event.preventDefault();
-  };
-
-  const handleDrop = (event) => {
-    event.preventDefault();
-    const file = event.dataTransfer.files[0];
-    if (file) {
-      setSelectedFile(file);
-      simulateUpload();
-    }
-  };
-
-  const handleRecordClick = async () => {
-    if (isRecording) {
-      stopRecording();
-    } else {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const recorder = new MediaRecorder(stream);
-        
-        audioChunksRef.current = [];
-        recorder.ondataavailable = (e) => {
-          audioChunksRef.current.push(e.data);
-        };
-        
-        recorder.onstop = () => {
-          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-          const audioFile = new File([audioBlob], `recording-${new Date().toISOString()}.webm`, { 
-            type: 'audio/webm' 
-          });
-          setSelectedFile(audioFile);
-          simulateUpload();
-          
-          // Dừng tất cả các track
-          stream.getTracks().forEach(track => track.stop());
-        };
-        
-        recorder.start();
-        setMediaRecorder(recorder);
-        setIsRecording(true);
-        setRecordingTime(0);
-        
-        // Bắt đầu đếm thời gian
-        timerRef.current = setInterval(() => {
-          setRecordingTime(prev => prev + 1);
-        }, 1000);
-      } catch (error) {
-        console.error('Error accessing microphone:', error);
-        alert('Không thể truy cập microphone. Vui lòng kiểm tra quyền truy cập.');
+      // Tạo URL cho file âm thanh
+      const url = URL.createObjectURL(file);
+      setAudioUrl(url);
+      // Reset các state khác
+      setRecordedAudio(null);
+      setError(null);
+      
+      // Gọi callback khi chọn file nếu có
+      if (onFileSelect) {
+        onFileSelect(file);
       }
     }
   };
 
-  const stopRecording = () => {
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-      mediaRecorder.stop();
-      clearInterval(timerRef.current);
-      setIsRecording(false);
+  const handleDrop = (e) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (file) {
+      setSelectedFile(file);
+      // Tạo URL cho file âm thanh
+      const url = URL.createObjectURL(file);
+      setAudioUrl(url);
+      // Reset các state khác
+      setRecordedAudio(null);
+      setError(null);
+      
+      // Gọi callback khi thả file nếu có
+      if (onFileSelect) {
+        onFileSelect(file);
+      }
     }
   };
 
-  const formatTime = (seconds) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  const handleDragOver = (e) => {
+    e.preventDefault();
   };
 
-  const clearFile = () => {
+  const handleRecordedAudio = (blob) => {
+    setRecordedAudio(blob);
     setSelectedFile(null);
-    setUploadProgress(0);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
+    
+    // Tạo URL cho âm thanh đã ghi
+    const url = URL.createObjectURL(blob);
+    setAudioUrl(url);
+    // Reset các state khác
+    setError(null);
+    
+    // Gọi callback khi ghi âm nếu có
+    if (onFileSelect) {
+      onFileSelect(blob);
     }
   };
 
-  const submitFile = () => {
-    if (selectedFile && uploadProgress === 100) {
-      onFileSelect(selectedFile);
+  const toggleAudioPlayback = () => {
+    if (audioRef.current) {
+      if (isPlaying) {
+        audioRef.current.pause();
+      } else {
+        audioRef.current.play();
+      }
+      setIsPlaying(!isPlaying);
+    }
+  };
+
+  const uploadToServer = async () => {
+    // Xác định file để upload
+    const fileToUpload = selectedFile || recordedAudio;
+    if (!fileToUpload) {
+      setError('Vui lòng tải lên hoặc ghi âm trước khi chuyển đổi.');
+      return;
+    }
+    
+    // Chuẩn bị FormData
+    const formData = new FormData();
+    formData.append('file', fileToUpload);
+    formData.append('model_id', 'scribe_v1');
+    
+    // Thêm tham số diarize và num_speakers
+    formData.append('diarize', 'true');
+    formData.append('num_speakers', '20');
+    
+    try {
+      setIsLoading(true);
+      if (onTranscriptionComplete) {
+        // Thông báo cho component cha rằng đang loading
+        onTranscriptionComplete(null, audioUrl, null, true);
+      }
+      setError(null);
+      
+      // Sử dụng API key từ biến môi trường
+      const apiKey = process.env.REACT_APP_ELEVENLABS_API_KEY;
+      if (!apiKey) {
+        throw new Error('API key không được cấu hình. Vui lòng thêm REACT_APP_ELEVENLABS_API_KEY vào file .env');
+      }
+      
+      console.log('Bắt đầu gửi yêu cầu đến ElevenLabs API...');
+      
+      // Gọi API ElevenLabs
+      const response = await axios.post('https://api.elevenlabs.io/v1/speech-to-text', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+          'xi-api-key': apiKey,
+        },
+        onUploadProgress: (progressEvent) => {
+          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          setUploadProgress(percentCompleted);
+        }
+      });
+      
+      console.log('Kết quả API:', response.data);
+      
+      // Truyền kết quả lên component cha
+      if (onTranscriptionComplete) {
+        onTranscriptionComplete(response.data, audioUrl);
+      }
+      
+      setIsLoading(false);
+      setUploadProgress(100);
+    } catch (err) {
+      setIsLoading(false);
+      
+      // Hiển thị lỗi chi tiết hơn
+      console.error('Error during transcription:', err);
+      let errorMessage = 'Đã xảy ra lỗi khi chuyển đổi.';
+      
+      if (err.response) {
+        // Lỗi từ server
+        console.error('Server error data:', err.response.data);
+        errorMessage = `Lỗi ${err.response.status}: ${err.response.data.detail || err.response.data.message || JSON.stringify(err.response.data)}`;
+      } else if (err.request) {
+        // Không nhận được phản hồi
+        errorMessage = 'Không nhận được phản hồi từ server. Vui lòng kiểm tra kết nối mạng.';
+      } else if (err.message) {
+        // Lỗi khác
+        errorMessage = err.message;
+      }
+      
+      setError(errorMessage);
+      
+      // Truyền lỗi lên component cha
+      if (onTranscriptionComplete) {
+        onTranscriptionComplete(null, audioUrl, { message: errorMessage });
+      }
     }
   };
 
   return (
-    <UploaderContainer>
-      <h3 className="mb-4">{description || 'Tải lên hoặc ghi âm'}</h3>
-      
-      {!selectedFile && (
-        <FileInputWrapper 
-          onDragOver={handleDragOver} 
-          onDrop={handleDrop}
-          onClick={() => fileInputRef.current.click()}
-        >
-          <FaFileUpload size={48} color="#6c5ce7" />
-          <p className="mt-3 mb-0">Kéo thả file âm thanh hoặc nhấp để chọn</p>
-          <small className="text-muted">Hỗ trợ tất cả các định dạng âm thanh và video phổ biến</small>
-          <HiddenInput 
-            type="file" 
-            ref={fileInputRef} 
-            onChange={handleFileSelect} 
-            accept="audio/*,video/*"
-          />
-        </FileInputWrapper>
-      )}
-      
-      {selectedFile && (
-        <>
-          <FileInfo>
-            <FileName>{selectedFile.name}</FileName>
-            <Button variant="outline-danger" size="sm" onClick={clearFile}>
-              <FaTrash />
-            </Button>
-          </FileInfo>
-          <div className="mt-3">
-            <ProgressBar 
-              animated={uploadProgress < 100} 
-              variant={uploadProgress === 100 ? "success" : "primary"} 
-              now={uploadProgress} 
-              label={`${uploadProgress}%`} 
+    <div>
+      <UploaderContainer>
+        <h3 className="mb-4">Tải lên hoặc ghi âm</h3>
+        
+        {!isRecording ? (
+          <UploadForm>
+            <FileInput
+              type="file"
+              accept="audio/*"
+              onChange={handleFileChange}
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
+              ref={fileInputRef}
+              onClick={(e) => e.target.value = null}
+              custom="true"
+              label={selectedFile ? `Đã chọn: ${selectedFile.name}` : "Kéo thả hoặc click để tải lên tập tin âm thanh"}
             />
-          </div>
-        </>
-      )}
-      
-      {showRecordButton && (
-        <RecordButton 
-          variant={isRecording ? "danger" : "primary"} 
-          size="lg" 
-          block 
-          onClick={handleRecordClick}
-          isRecording={isRecording}
-          disabled={selectedFile && !isRecording}
-        >
-          <FaMicrophone className="me-2" />
-          {isRecording ? `Đang ghi âm ${formatTime(recordingTime)}` : "Ghi âm"}
-        </RecordButton>
-      )}
-      
-      <ButtonsContainer>
-        <Button 
-          variant="success" 
-          size="lg" 
-          disabled={!selectedFile || uploadProgress < 100} 
-          onClick={submitFile}
-        >
-          {submitButtonText || "Chuyển đổi thành văn bản"}
-        </Button>
-      </ButtonsContainer>
-    </UploaderContainer>
+            
+            <ButtonContainer>
+              <Button 
+                variant="primary" 
+                onClick={() => setIsRecording(true)}
+              >
+                <FaMicrophone /> Ghi âm
+              </Button>
+              
+              <Button 
+                variant="success" 
+                onClick={uploadToServer}
+                disabled={!selectedFile && !recordedAudio || isLoading}
+              >
+                {isLoading ? (
+                  <>
+                    <Spinner
+                      as="span"
+                      animation="border"
+                      size="sm"
+                      role="status"
+                      aria-hidden="true"
+                    />
+                    <span className="ms-2">Đang xử lý...</span>
+                  </>
+                ) : (
+                  <>
+                    <FaUpload /> {submitButtonText}
+                  </>
+                )}
+              </Button>
+              
+              {(selectedFile || recordedAudio) && (
+                <Button 
+                  variant={isPlaying ? "warning" : "info"} 
+                  onClick={toggleAudioPlayback}
+                >
+                  {isPlaying ? <FaPause /> : <FaPlay />} {isPlaying ? 'Tạm dừng' : 'Phát'}
+                </Button>
+              )}
+            </ButtonContainer>
+            
+            {(selectedFile || recordedAudio) && (
+              <audio ref={audioRef} src={audioUrl} onEnded={() => setIsPlaying(false)} style={{ display: 'none' }} />
+            )}
+            
+            {uploadProgress > 0 && (
+              <StyledProgressBar 
+                now={uploadProgress} 
+                variant={uploadProgress < 100 ? "primary" : "success"} 
+                label={`${uploadProgress}%`} 
+              />
+            )}
+            
+            {error && (
+              <Alert variant="danger" className="mt-3">
+                <strong>Lỗi: </strong> {error}
+              </Alert>
+            )}
+          </UploadForm>
+        ) : (
+          <AudioRecorder 
+            onRecordingComplete={handleRecordedAudio} 
+            onCancel={() => setIsRecording(false)} 
+          />
+        )}
+      </UploaderContainer>
+    </div>
   );
 };
 

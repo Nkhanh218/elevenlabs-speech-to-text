@@ -23,13 +23,15 @@ export const convertSpeechToText = async (audioFile, apiKey, options = {}) => {
   
   if (options.numSpeakers) {
     formData.append('num_speakers', options.numSpeakers);
+  } else {
+    formData.append('num_speakers', '20');
   }
   
   if (options.timestampsGranularity) {
     formData.append('timestamps_granularity', options.timestampsGranularity);
   }
   
-  formData.append('diarize', (options.diarize !== undefined ? options.diarize : false).toString());
+  formData.append('diarize', 'true');
   formData.append('tag_audio_events', (options.tagAudioEvents !== undefined ? options.tagAudioEvents : true).toString());
 
   console.log('File được gửi:', {

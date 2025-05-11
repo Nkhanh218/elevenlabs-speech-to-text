@@ -17,17 +17,17 @@ const DEFAULT_SETTINGS = {
   tagAudioEvents: true,
   timestampsGranularity: 'word',
   languageCode: 'vi',
-  numSpeakers: ''
+  numSpeakers: '2'
 };
 
 /*
  * API key của ElevenLabs
  * API key có thể lấy từ trang: https://elevenlabs.io/app/account 
- * Định dạng API key thường là một chuỗi ký tự mà không bắt đầu bằng "sk_"
+ * Định dạng API key thường là một chuỗi ký tự
  * Ví dụ: "a1b2c3d4e5f6g7h8i9j0"
  */
-// Điền API key đúng của bạn vào đây
-const API_KEY = "sk_c4716195cb4b9fabee223be86ef4e899d4ff55dc92a52999";
+// Sử dụng biến môi trường để lấy API key
+const API_KEY = process.env.REACT_APP_ELEVENLABS_API_KEY;
 
 // Kiểm tra API key khi ứng dụng khởi động
 console.log('API key được cấu hình:', API_KEY ? `${API_KEY.substring(0, 5)}...` : 'Không có');
@@ -128,6 +128,7 @@ function App() {
   const [error, setError] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
   const [activeTab, setActiveTab] = useState('speech-to-text');
+  const [audioUrl, setAudioUrl] = useState(null);
   
   const handleFileSelect = async (file) => {
     setSelectedFile(file);
@@ -137,55 +138,30 @@ function App() {
       console.log('File đã chọn cho tab cắt:', file.name);
       return;
     }
+  };
+  
+  const handleTranscriptionComplete = (data, url, err, isLoading) => {
+    setAudioUrl(url);
+    setTranscription(data);
+    setError(err);
     
-    // Xử lý chuyển đổi speech-to-text
-    try {
-      setLoading(true);
-      setError(null);
-      setTranscription(null);
-      
-      console.log('Tập tin được chọn:', file.name, file.type, file.size);
-      
-      const options = {
-        ...DEFAULT_SETTINGS
-      };
-      
-      console.log('Bắt đầu gọi API với tùy chọn:', options);
-      const result = await convertSpeechToText(file, API_KEY, options);
-      console.log('Kết quả từ API:', result);
-      setTranscription(result);
+    // Cập nhật trạng thái loading
+    if (isLoading !== undefined) {
+      setLoading(isLoading);
+    } else {
+      setLoading(false);
+    }
+    
+    if (data) {
       toast.success('Chuyển đổi thành công!', {
         position: "top-right",
         autoClose: 3000
       });
-    } catch (err) {
-      console.error('Chi tiết lỗi:', err);
-      setError(err);
-      let errorMessage = 'Lỗi khi chuyển đổi';
-      
-      if (err.response) {
-        // Lỗi từ server
-        if (err.response.status === 401) {
-          errorMessage = 'Lỗi xác thực API key. Vui lòng kiểm tra lại API key.';
-        } else if (err.response.data && err.response.data.message) {
-          errorMessage = `Lỗi: ${err.response.data.message}`;
-        } else {
-          errorMessage = `Lỗi ${err.response.status}: ${err.message}`;
-        }
-      } else if (err.request) {
-        // Không nhận được phản hồi
-        errorMessage = 'Không nhận được phản hồi từ server. Vui lòng kiểm tra kết nối mạng.';
-      } else {
-        // Lỗi khác
-        errorMessage = err.message;
-      }
-      
-      toast.error(errorMessage, {
+    } else if (err) {
+      toast.error(err.message || 'Lỗi khi chuyển đổi', {
         position: "top-right",
         autoClose: 5000
       });
-    } finally {
-      setLoading(false);
     }
   };
   
@@ -236,7 +212,8 @@ function App() {
             <Row>
               <Col lg={6}>
                 <AudioUploader 
-                  onFileSelect={handleFileSelect} 
+                  onFileSelect={handleFileSelect}
+                  onTranscriptionComplete={handleTranscriptionComplete}
                   submitButtonText="Chuyển đổi thành văn bản"
                 />
               </Col>
@@ -245,6 +222,7 @@ function App() {
                   transcription={transcription} 
                   loading={loading} 
                   error={error} 
+                  audioUrl={audioUrl}
                 />
               </Col>
             </Row>
@@ -266,7 +244,7 @@ function App() {
                           Chọn file khác
                         </Button>
                       </div>
-                    </div>
+    </div>
                     <AudioTrimmer 
                       audioFile={selectedFile}
                       onSaveTrimmed={handleTrimmedAudio}

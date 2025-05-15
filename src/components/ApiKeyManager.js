@@ -66,7 +66,7 @@ const ApiKeyManager = ({ onApiKeyUpdate, isModal = false, onClose }) => {
     loadApiKey();
   }, [isAuthenticated]);
   
-  const loadApiKey = async () => {
+  const loadApiKey = () => {
     try {
       setIsLoading(true);
       const key = getApiKey();

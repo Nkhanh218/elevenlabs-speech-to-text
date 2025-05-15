@@ -388,6 +388,11 @@ const TranscriptionOutput = ({
   const [currentWordIndex, setCurrentWordIndex] = useState(-1); // Thêm state lưu trữ từ hiện tại đang phát
   const [currentSegmentIndex, setCurrentSegmentIndex] = useState(-1); // Thêm state lưu trữ đoạn hiện tại đang phát
   
+  // Thêm state cho việc chỉnh sửa tên các speaker
+  const [speakerNames, setSpeakerNames] = useState({});
+  const [editingSpeakerId, setEditingSpeakerId] = useState(null);
+  const [editingSpeakerName, setEditingSpeakerName] = useState('');
+  
   const textAreaRef = useRef(null);
   const audioRef = useRef(null);
   const progressBarRef = useRef(null);
@@ -423,9 +428,22 @@ const TranscriptionOutput = ({
         
         speakers.forEach((speaker, index) => {
           colors[speaker] = colorPalette[index % colorPalette.length];
+          // Khởi tạo tên mặc định cho speaker
+          if (!speakerNames[speaker]) {
+            speakerNames[speaker] = `Người ${speaker.replace('speaker_', '')}`;
+          }
         });
         
         setSpeakerColors(colors);
+        setSpeakerNames(prevNames => {
+          const newNames = {...prevNames};
+          speakers.forEach(speaker => {
+            if (!newNames[speaker]) {
+              newNames[speaker] = `Người ${speaker.replace('speaker_', '')}`;
+            }
+          });
+          return newNames;
+        });
       }
     }
   }, [transcription]);
@@ -1070,30 +1088,31 @@ const TranscriptionOutput = ({
           // Kiểm tra xem đoạn này có đang phát không
           const isCurrentlyPlaying = index === currentSegmentIndex;
           
-          // Hiển thị đoạn văn bản với từ khóa được highlight
           const renderTextWithHighlight = () => {
             if (!searchTerm || !segment.text) return segment.text;
             
             try {
-              const parts = segment.text.split(new RegExp(`(${searchTerm})`, 'gi'));
+              const regex = new RegExp(`(${searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+              const parts = segment.text.split(regex);
               
               return (
                 <>
                   {parts.map((part, i) => {
-                    const isMatch = part.toLowerCase() === searchTerm.toLowerCase();
-                    return isMatch ? (
-                      <span 
-                        key={i}
-                        style={{
-                          backgroundColor: 'rgba(255, 193, 7, 0.5)',
-                          padding: '0 2px',
-                          borderRadius: '3px',
-                          fontWeight: 'bold'
-                        }}
-                      >
-                        {part}
-                      </span>
-                    ) : part;
+                    return (
+                      part.toLowerCase() === searchTerm.toLowerCase() ? (
+                        <span 
+                          key={i}
+                          style={{
+                            backgroundColor: 'rgba(255, 193, 7, 0.5)',
+                            padding: '0 2px',
+                            borderRadius: '3px',
+                            fontWeight: 'bold'
+                          }}
+                        >
+                          {part}
+                        </span>
+                      ) : part
+                    );
                   })}
                 </>
               );
@@ -1114,13 +1133,11 @@ const TranscriptionOutput = ({
               </SpeakerAvatar>
               
               <SpeakerContent>
-                <SpeakerName>
-                  Speaker {speakerNum}
-                  <TimeRange>
-                    {segment.start !== undefined && segment.end !== undefined && 
-                      `${formatTime(segment.start)} - ${formatTime(segment.end)}`}
-                  </TimeRange>
-                </SpeakerName>
+                <SpeakerNameComponent speakerId={segment.speaker_id} index={index} />
+                <TimeRange>
+                  {segment.start !== undefined && segment.end !== undefined && 
+                    `${formatTime(segment.start)} - ${formatTime(segment.end)}`}
+                </TimeRange>
                 
                 <SpeakerText 
                   fontSize={fontSize}
@@ -1410,16 +1427,91 @@ const TranscriptionOutput = ({
     
   // Cập nhật phần lọc đoạn hội thoại cho cả hai trang - THỐNG NHẤT LOGIC GIỮA CÁC TRANG
   const getFilteredSegments = () => {
-    // Lọc các segments dựa trên danh sách filteredSpeakers
-    const allSegments = getSegments();
+    // Lấy tất cả các segments
+    const segments = getSegments();
     
-    // Nếu không có người nói nào được chọn, hiển thị tất cả
+    // Nếu không có lọc gì, trả về tất cả
     if (filteredSpeakers.length === 0) {
-      return allSegments;
+      return segments;
     }
     
-    // Chỉ hiển thị đoạn hội thoại của những người nói đã chọn
-    return allSegments.filter(segment => filteredSpeakers.includes(segment.speaker_id));
+    // Trả về các segments khớp với lọc speakers
+    return segments.filter(segment => filteredSpeakers.includes(segment.speaker_id));
+  };
+
+  // Thêm hàm xử lý việc chỉnh sửa tên speaker
+  const startEditSpeakerName = (speakerId) => {
+    setEditingSpeakerId(speakerId);
+    setEditingSpeakerName(speakerNames[speakerId] || `Người ${speakerId.replace('speaker_', '')}`);
+  };
+  
+  const saveSpeakerName = () => {
+    if (editingSpeakerId) {
+      setSpeakerNames(prevNames => ({
+        ...prevNames,
+        [editingSpeakerId]: editingSpeakerName.trim() || `Người ${editingSpeakerId.replace('speaker_', '')}`
+      }));
+      setEditingSpeakerId(null);
+      setEditingSpeakerName('');
+      showToastMessage('Đã lưu tên người nói');
+    }
+  };
+  
+  const cancelEditSpeakerName = () => {
+    setEditingSpeakerId(null);
+    setEditingSpeakerName('');
+  };
+
+  // Cập nhật component SpeakerName để cho phép sửa tên
+  const SpeakerNameComponent = ({ speakerId, index }) => {
+    const speakerNum = speakerId ? speakerId.replace('speaker_', '') : 'U';
+    const isEditing = speakerId === editingSpeakerId;
+    
+    return (
+      <SpeakerName>
+        {isEditing ? (
+          <>
+            <Form.Control
+              type="text"
+              value={editingSpeakerName}
+              onChange={(e) => setEditingSpeakerName(e.target.value)}
+              size="sm"
+              autoFocus
+              onKeyPress={(e) => e.key === 'Enter' && saveSpeakerName()}
+              style={{ width: '60%', display: 'inline-block' }}
+            />
+            <Button 
+              variant="success" 
+              size="sm" 
+              onClick={saveSpeakerName}
+              style={{ marginLeft: '5px' }}
+            >
+              <FaCheck />
+            </Button>
+            <Button 
+              variant="secondary" 
+              size="sm" 
+              onClick={cancelEditSpeakerName}
+              style={{ marginLeft: '5px' }}
+            >
+              <FaRegTimesCircle />
+            </Button>
+          </>
+        ) : (
+          <>
+            {speakerNames[speakerId] || `Người ${speakerNum}`}
+            <Button 
+              variant="link" 
+              size="sm" 
+              onClick={() => startEditSpeakerName(speakerId)}
+              style={{ padding: '0', marginLeft: '5px', color: '#84ffff' }}
+            >
+              <FaEdit />
+            </Button>
+          </>
+        )}
+      </SpeakerName>
+    );
   };
 
   // Giao diện toàn màn hình
@@ -1572,13 +1664,11 @@ const TranscriptionOutput = ({
                       </SpeakerAvatar>
                       
                       <SpeakerContent>
-                        <SpeakerName>
-                          Người {speakerNum}
-                          <TimeRange>
-                            {segment.start !== undefined && segment.end !== undefined && 
-                              `${formatTime(segment.start)} - ${formatTime(segment.end)}`}
-                          </TimeRange>
-                        </SpeakerName>
+                        <SpeakerNameComponent speakerId={segment.speaker_id} index={index} />
+                        <TimeRange>
+                          {segment.start !== undefined && segment.end !== undefined && 
+                            `${formatTime(segment.start)} - ${formatTime(segment.end)}`}
+                        </TimeRange>
                         
                         <SpeakerText 
                           fontSize={fontSize}
@@ -1825,12 +1915,10 @@ const TranscriptionOutput = ({
                       {speakerNum}
                     </SpeakerAvatar>
                     <SpeakerContent>
-                      <SpeakerName>
-                        Người {speakerNum}
-                        <TimeRange>
-                          {formatTime(segment.start)} - {formatTime(segment.end)}
-                        </TimeRange>
-                      </SpeakerName>
+                      <SpeakerNameComponent speakerId={segment.speaker_id} index={index} />
+                      <TimeRange>
+                        {formatTime(segment.start)} - {formatTime(segment.end)}
+                      </TimeRange>
                       <SpeakerText 
             fontSize={fontSize}
                         onClick={() => handleSegmentClick(segment, index)}

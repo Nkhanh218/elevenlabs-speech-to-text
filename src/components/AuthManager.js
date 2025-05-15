@@ -290,7 +290,7 @@ const AuthManager = () => {
           variant="primary" 
           onClick={openLoginModal}
         >
-          <FaUser className="me-2" /> Đăng nhập
+          {/* <FaUser className="me-2" /> Đăng nhập */}
         </Button>
       )}
       

@@ -75,35 +75,15 @@ export const saveApiKey = async (apiKey) => {
   }
 };
 
-export const getApiKey = async () => {
-  try {
-    // Đầu tiên, kiểm tra trong localStorage
-    const localApiKey = localStorage.getItem('elevenlabs_api_key');
-    if (localApiKey) {
-      return localApiKey;
-    }
-    
-    // Nếu không có trong localStorage, thử lấy từ server nếu người dùng đã đăng nhập
-    const token = localStorage.getItem('token');
-    if (token) {
-      try {
-        const response = await api.get('/auth/me');
-        if (response.data && response.data.elevenLabsApiKey) {
-          // Lưu API key từ server vào localStorage để sử dụng sau này
-          localStorage.setItem('elevenlabs_api_key', response.data.elevenLabsApiKey);
-          return response.data.elevenLabsApiKey;
-        }
-      } catch (err) {
-        console.error('Error fetching user data:', err);
-      }
-    }
-    
-    // Nếu không có API key nào, trả về null
-    return null;
-  } catch (error) {
-    console.error('Error getting API key:', error);
-    return null;
+export const getApiKey = () => {
+  // Đầu tiên, kiểm tra trong localStorage
+  const localApiKey = localStorage.getItem('elevenlabs_api_key');
+  if (localApiKey) {
+    return localApiKey;
   }
+  
+  // Nếu không có trong localStorage, trả về null
+  return null;
 };
 
 // Transcription services
@@ -153,7 +133,7 @@ export const deleteTranscript = async (id) => {
 
 // ElevenLabs API proxy
 export const transcribeWithElevenLabs = async (file, options = {}) => {
-  const apiKey = await getApiKey();
+  const apiKey = getApiKey();
   if (!apiKey) {
     throw new Error('Chưa cấu hình ElevenLabs API key. Vui lòng nhập API key của bạn.');
   }

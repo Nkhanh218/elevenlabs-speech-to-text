@@ -1379,7 +1379,7 @@ const TranscriptionOutput = ({
     try {
       const parts = segment.text.split(new RegExp(`(${searchTerm})`, 'gi'));
       
-      return (
+        return (
         <>
           {parts.map((part, i) => {
             const isMatch = part.toLowerCase() === searchTerm.toLowerCase();
@@ -1406,8 +1406,8 @@ const TranscriptionOutput = ({
   };
 
   // Lấy segments từ hàm getSegments() để tránh lỗi segments is not defined
-  const segments = getSegments();
-  
+    const segments = getSegments();
+    
   // Cập nhật phần lọc đoạn hội thoại cho cả hai trang - THỐNG NHẤT LOGIC GIỮA CÁC TRANG
   const getFilteredSegments = () => {
     // Lọc các segments dựa trên danh sách filteredSpeakers
@@ -1462,82 +1462,82 @@ const TranscriptionOutput = ({
             {/* Phần bộ lọc có thể ẩn/hiện */}
             <FilterSection isVisible={showFilters} style={{ margin: '0 2rem', borderRadius: 0 }}>
               <ControlPanel style={{ margin: '0', borderRadius: '8px', transition: 'all 0.3s ease' }}>
-                <Row className="w-100">
-                  <Col md={3}>
-                    <Form.Group>
-                      <Form.Label>Tìm kiếm văn bản</Form.Label>
-                      <Form.Control 
-                        type="text" 
-                        placeholder="Nhập từ cần tìm..." 
-                        value={searchTerm}
-                        onChange={handleSearch}
-                      />
-                    </Form.Group>
-                  </Col>
-                  
-                  <Col md={3}>
-                    <Form.Group>
-                      <Form.Label>Kích thước chữ</Form.Label>
-                      <Form.Select value={fontSize} onChange={handleFontSizeChange}>
-                        <option value="0.9rem">Nhỏ</option>
-                        <option value="1.1rem">Vừa</option>
-                        <option value="1.3rem">Lớn</option>
-                        <option value="1.5rem">Rất lớn</option>
-                      </Form.Select>
-                    </Form.Group>
-                  </Col>
-                  
-                  <Col md={3}>
-                    <Form.Group>
-                      <Form.Label>Kiểu hiển thị</Form.Label>
-                      <Form.Select 
-                        value={displayMode} 
-                        onChange={(e) => setDisplayMode(e.target.value)}
-                      >
-                        <option value="dialogue">Đoạn hội thoại</option>
-                        <option value="words">Từng từ</option>
-                      </Form.Select>
-                    </Form.Group>
-                  </Col>
-                  
-                  <Col md={3} className="d-flex align-items-end">
-                    <Button 
-                      variant="outline-secondary" 
-                      onClick={clearSearchAndFilters}
-                      className="w-100"
-                    >
-                      <FaRegTimesCircle /> Xóa tìm kiếm & lọc
-                    </Button>
-                  </Col>
-                </Row>
-                
-                {speakers.length > 0 && (
-                  <SpeakerFilterContainer className="w-100">
-                    <span className="me-2">Lọc theo người nói:</span>
-                    {speakers.map((speaker, index) => {
-                      const speakerNum = speaker.replace('speaker_', '');
-                      const colors = ['#6c5ce7', '#e84393', '#00b894', '#fdcb6e', '#e17055'];
-                      const color = colors[index % colors.length];
+            <Row className="w-100">
+              <Col md={3}>
+                <Form.Group>
+                  <Form.Label>Tìm kiếm văn bản</Form.Label>
+                  <Form.Control 
+                    type="text" 
+                    placeholder="Nhập từ cần tìm..." 
+                    value={searchTerm}
+                    onChange={handleSearch}
+                  />
+                </Form.Group>
+              </Col>
+              
+              <Col md={3}>
+                <Form.Group>
+                  <Form.Label>Kích thước chữ</Form.Label>
+                  <Form.Select value={fontSize} onChange={handleFontSizeChange}>
+                    <option value="0.9rem">Nhỏ</option>
+                    <option value="1.1rem">Vừa</option>
+                    <option value="1.3rem">Lớn</option>
+                    <option value="1.5rem">Rất lớn</option>
+                  </Form.Select>
+                </Form.Group>
+              </Col>
+              
+              <Col md={3}>
+                <Form.Group>
+                  <Form.Label>Kiểu hiển thị</Form.Label>
+                  <Form.Select 
+                    value={displayMode} 
+                    onChange={(e) => setDisplayMode(e.target.value)}
+                  >
+                    <option value="dialogue">Đoạn hội thoại</option>
+                    <option value="words">Từng từ</option>
+                  </Form.Select>
+                </Form.Group>
+              </Col>
+              
+              <Col md={3} className="d-flex align-items-end">
+                <Button 
+                  variant="outline-secondary" 
+                  onClick={clearSearchAndFilters}
+                  className="w-100"
+                >
+                  <FaRegTimesCircle /> Xóa tìm kiếm & lọc
+                </Button>
+              </Col>
+            </Row>
+            
+            {speakers.length > 0 && (
+              <SpeakerFilterContainer className="w-100">
+                <span className="me-2">Lọc theo người nói:</span>
+                {speakers.map((speaker, index) => {
+                  const speakerNum = speaker.replace('speaker_', '');
+                  const colors = ['#6c5ce7', '#e84393', '#00b894', '#fdcb6e', '#e17055'];
+                  const color = colors[index % colors.length];
                       
                       // Trạng thái active phụ thuộc vào việc có trong danh sách lọc hay không
                       const isActive = filteredSpeakers.includes(speaker);
-                      
-                      return (
-                        <SpeakerFilterButton
-                          key={speaker}
-                          variant="outline-primary"
-                          size="sm"
+                  
+                  return (
+                    <SpeakerFilterButton
+                      key={speaker}
+                      variant="outline-primary"
+                      size="sm"
                           isActive={isActive}
-                          color={color}
-                          onClick={() => toggleSpeakerFilter(speaker)}
-                        >
-                          <FaUser size={10} /> Người {speakerNum}
-                        </SpeakerFilterButton>
-                      );
-                    })}
-                  </SpeakerFilterContainer>
-                )}
-              </ControlPanel>
+                      color={color}
+                      onClick={() => toggleSpeakerFilter(speaker)}
+                    >
+                      <FaUser size={10} /> Người {speakerNum}
+                    </SpeakerFilterButton>
+                  );
+                })}
+              </SpeakerFilterContainer>
+            )}
+          </ControlPanel>
             </FilterSection>
           </div>
           
@@ -1832,7 +1832,7 @@ const TranscriptionOutput = ({
                         </TimeRange>
                       </SpeakerName>
                       <SpeakerText 
-                        fontSize={fontSize}
+            fontSize={fontSize}
                         onClick={() => handleSegmentClick(segment, index)}
                         isCurrentlyPlaying={currentSegmentIndex === index}
                       >
@@ -1843,11 +1843,11 @@ const TranscriptionOutput = ({
                 );
               })}
             </DialogueContainer>
-          ) : (
-            <TranscriptionText fontSize={fontSize}>
+        ) : (
+          <TranscriptionText fontSize={fontSize}>
               {renderWords()}
-            </TranscriptionText>
-          )}
+          </TranscriptionText>
+        )}
         </div>
         
         {/* Audio Player */}
@@ -1876,7 +1876,7 @@ const TranscriptionOutput = ({
                   onChange={onVolumeChange}
                   style={{ width: '80px' }} 
                 />
-              </div>
+            </div>
               <Button 
                 variant="outline-secondary" 
                 size="sm" 

@@ -170,7 +170,7 @@ function App() {
         message: 'API key không được cấu hình. Vui lòng thêm ElevenLabs API key để tiếp tục.'
       });
     } else {
-      setError(err);
+    setError(err);
     }
     
     // Cập nhật trạng thái loading
@@ -212,27 +212,27 @@ function App() {
   return (
     <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
       <AuthProvider>
-        <GlobalStyle />
-        <NavbarStyled expand="lg" variant="dark">
-          <Container>
-            <Navbar.Brand href="#">
-              <Logo>
-                <FaMicrophone size={24} />
-                <span>Speech to Text</span>
-              </Logo>
-            </Navbar.Brand>
-            <Navbar.Toggle aria-controls="basic-navbar-nav" />
-            <Navbar.Collapse id="basic-navbar-nav">
-              <Nav className="ms-auto">
+      <GlobalStyle />
+      <NavbarStyled expand="lg" variant="dark">
+        <Container>
+          <Navbar.Brand href="#">
+            <Logo>
+              <FaMicrophone size={24} />
+              <span>Speech to Text</span>
+            </Logo>
+          </Navbar.Brand>
+          <Navbar.Toggle aria-controls="basic-navbar-nav" />
+          <Navbar.Collapse id="basic-navbar-nav">
+            <Nav className="ms-auto">
                 <div className="d-flex align-items-center">
                   <AuthManager />
                 </div>
-              </Nav>
-            </Navbar.Collapse>
-          </Container>
-        </NavbarStyled>
-        
-        <MainContainer>
+            </Nav>
+          </Navbar.Collapse>
+        </Container>
+      </NavbarStyled>
+      
+      <MainContainer>
           {!hasApiKey && (
             <Row className="mb-4">
               <Col>
@@ -241,18 +241,18 @@ function App() {
             </Row>
           )}
           
-          <TabsStyled 
-            activeKey={activeTab} 
-            onSelect={handleTabChange}
-          >
-            <Tab eventKey="speech-to-text" title="Chuyển đổi Speech to Text">
-              <Row>
-                <Col lg={6}>
-                  <AudioUploader 
-                    onFileSelect={handleFileSelect}
-                    onTranscriptionComplete={handleTranscriptionComplete}
-                    submitButtonText="Chuyển đổi thành văn bản"
-                  />
+        <TabsStyled 
+          activeKey={activeTab} 
+          onSelect={handleTabChange}
+        >
+          <Tab eventKey="speech-to-text" title="Chuyển đổi Speech to Text">
+            <Row>
+              <Col lg={6}>
+                <AudioUploader 
+                  onFileSelect={handleFileSelect}
+                  onTranscriptionComplete={handleTranscriptionComplete}
+                  submitButtonText="Chuyển đổi thành văn bản"
+                />
                   
                   {/* Nút cấu hình API key */}
                   {hasApiKey && (
@@ -266,14 +266,14 @@ function App() {
                       </Button>
                     </div>
                   )}
-                </Col>
-                <Col lg={6}>
-                  <TranscriptionOutput 
-                    transcription={transcription} 
-                    loading={loading} 
-                    error={error} 
-                    audioUrl={audioUrl}
-                  />
+              </Col>
+              <Col lg={6}>
+                <TranscriptionOutput 
+                  transcription={transcription} 
+                  loading={loading} 
+                  error={error} 
+                  audioUrl={audioUrl}
+                />
                   
                   {/* Hiển thị component ApiKeyManager khi có lỗi API key */}
                   {error && error.message && error.message.includes('API key') && (
@@ -286,43 +286,43 @@ function App() {
                       />
                     </div>
                   )}
-                </Col>
-              </Row>
-            </Tab>
-            <Tab eventKey="trim" title="Cắt Audio/Video">
-              <Row>
-                <Col lg={12}>
-                  {selectedFile ? (
-                    <>
-                      <div className="mb-3 p-3" style={{ backgroundColor: '#1e1e2e', borderRadius: '8px' }}>
-                        <h5 className="mb-2">File đã chọn:</h5>
-                        <div className="d-flex align-items-center justify-content-between">
-                          <span>{selectedFile.name} ({(selectedFile.size / 1024 / 1024).toFixed(2)} MB)</span>
-                          <Button 
-                            variant="outline-danger" 
-                            size="sm"
-                            onClick={() => setSelectedFile(null)}
-                          >
-                            Chọn file khác
-                          </Button>
-                        </div>
+              </Col>
+            </Row>
+          </Tab>
+          <Tab eventKey="trim" title="Cắt Audio/Video">
+            <Row>
+              <Col lg={12}>
+                {selectedFile ? (
+                  <>
+                    <div className="mb-3 p-3" style={{ backgroundColor: '#1e1e2e', borderRadius: '8px' }}>
+                      <h5 className="mb-2">File đã chọn:</h5>
+                      <div className="d-flex align-items-center justify-content-between">
+                        <span>{selectedFile.name} ({(selectedFile.size / 1024 / 1024).toFixed(2)} MB)</span>
+                        <Button 
+                          variant="outline-danger" 
+                          size="sm"
+                          onClick={() => setSelectedFile(null)}
+                        >
+                          Chọn file khác
+                        </Button>
                       </div>
-                      <AudioTrimmer 
-                        audioFile={selectedFile}
-                        onSaveTrimmed={handleTrimmedAudio}
-                      />
-                    </>
-                  ) : (
-                    <AudioUploader 
-                      onFileSelect={handleFileSelect}
+    </div>
+                    <AudioTrimmer 
+                      audioFile={selectedFile}
+                      onSaveTrimmed={handleTrimmedAudio}
+                    />
+                  </>
+                ) : (
+                  <AudioUploader 
+                    onFileSelect={handleFileSelect} 
                       submitButtonText="Tải lên để cắt"
                       hideRecorder={true}
-                    />
-                  )}
-                </Col>
-              </Row>
-            </Tab>
-          </TabsStyled>
+                  />
+                )}
+              </Col>
+            </Row>
+          </Tab>
+        </TabsStyled>
         </MainContainer>
         
         {/* Modal cho API Key */}

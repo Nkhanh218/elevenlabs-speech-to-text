@@ -393,6 +393,9 @@ const TranscriptionOutput = ({
   const [editingSpeakerId, setEditingSpeakerId] = useState(null);
   const [editingSpeakerName, setEditingSpeakerName] = useState('');
   
+  // Thêm state để lưu transcription đã được chỉnh sửa
+  const [editedTranscription, setEditedTranscription] = useState(null);
+  
   const textAreaRef = useRef(null);
   const audioRef = useRef(null);
   const progressBarRef = useRef(null);
@@ -410,6 +413,8 @@ const TranscriptionOutput = ({
   // trước bất kỳ lệnh return nào
   useEffect(() => {
     if (transcription) {
+      // Khởi tạo editedTranscription khi transcription thay đổi
+      setEditedTranscription(transcription);
       setEditedText(transcription.text);
       
       // Extract unique speakers
@@ -624,6 +629,37 @@ const TranscriptionOutput = ({
     }
   }, [currentTime, duration]);
 
+  // Thêm logs để debug
+  useEffect(() => {
+    if (editedTranscription) {
+      console.log("editedTranscription đã được cập nhật:", 
+        editedTranscription.text ? 
+        editedTranscription.text.substring(0, 100) + "..." : 
+        "không có văn bản");
+    }
+  }, [editedTranscription]);
+
+  // Thêm useEffect để log và kiểm tra khi editedTranscription thay đổi
+  useEffect(() => {
+    if (editedTranscription) {
+      console.log("editedTranscription đã được cập nhật:", 
+        editedTranscription.text ? 
+        editedTranscription.text.substring(0, 100) + "..." : 
+        "không có văn bản");
+        
+      // Cập nhật dữ liệu hiển thị cho người dùng
+      if (!editMode) {
+        // Force re-render bằng cách cập nhật một state liên quan
+        if (displayMode === 'words') {
+          setHighlightedWords([]); // Reset highlighted words
+        } else {
+          // Nếu đang ở chế độ dialogue, cập nhật segment hiện tại
+          setCurrentSegmentIndex(-1);
+        }
+      }
+    }
+  }, [editedTranscription, editMode, displayMode]);
+
   if (loading) {
     return (
       <OutputContainer className="d-flex justify-content-center align-items-center">
@@ -661,7 +697,7 @@ const TranscriptionOutput = ({
   }
   
   const copyToClipboard = () => {
-    const textToCopy = editMode ? editedText : transcription.text;
+    const textToCopy = editMode ? editedText : (editedTranscription ? editedTranscription.text : transcription.text);
     navigator.clipboard.writeText(textToCopy)
       .then(() => {
         setCopied(true);
@@ -684,24 +720,27 @@ const TranscriptionOutput = ({
         // Tạo định dạng theo người nói và thời gian từ các segments
         const segments = getSegments();
         textToDownload = segments.map(segment => {
-          const speakerNum = segment.speaker_id ? segment.speaker_id.replace('speaker_', '') : '?';
+          const speakerId = segment.speaker_id || 'unknown';
+          // Sử dụng tên đã chỉnh sửa từ speakerNames thay vì "Người X" cố định
+          const speakerName = speakerNames[speakerId] || `Người ${speakerId.replace('speaker_', '')}`;
           const timeRange = `${formatTime(segment.start)} - ${formatTime(segment.end)}`;
-          return `Người ${speakerNum} ${timeRange}\n${segment.text}\n\n`;
+          return `${speakerName} ${timeRange}\n${segment.text}\n\n`;
         }).join('');
       }
     } else {
       // Sử dụng văn bản thô nếu đang ở chế độ hiển thị từng từ
-      textToDownload = transcription.text;
+      textToDownload = editedTranscription ? editedTranscription.text : transcription.text;
     }
     
     // Tạo metadata ở đầu file
+    const currentTranscription = editedTranscription || transcription;
     const metadata = [
       '================================================',
       'THÔNG TIN CHUYỂN ĐỔI',
       '================================================',
-      `Ngôn ngữ: ${transcription.language_code?.toUpperCase() || 'Không xác định'}`,
-      `Độ tin cậy: ${transcription.language_probability ? Math.round(transcription.language_probability * 100) + '%' : 'Không xác định'}`,
-      `Thời lượng: ${formatTime(transcription.audio_duration || 0)}`,
+      `Ngôn ngữ: ${currentTranscription.language_code?.toUpperCase() || 'Không xác định'}`,
+      `Độ tin cậy: ${currentTranscription.language_probability ? Math.round(currentTranscription.language_probability * 100) + '%' : 'Không xác định'}`,
+      `Thời lượng: ${formatTime(currentTranscription.audio_duration || 0)}`,
       `Thời gian tạo: ${new Date().toLocaleString('vi-VN')}`,
       '================================================\n\n'
     ].join('\n');
@@ -720,11 +759,128 @@ const TranscriptionOutput = ({
   };
   
   const toggleEditMode = () => {
-    setEditMode(!editMode);
+    if (!editMode) {
+      // Chuyển sang chế độ chỉnh sửa
+      setEditMode(true);
+      
+      // Chuẩn bị văn bản để chỉnh sửa dựa trên chế độ hiển thị hiện tại
+      if (displayMode === 'dialogue') {
+        // Nếu đang ở chế độ dialogue, tạo văn bản từ các segments đã lọc
+        const segments = getSegments();
+        const formattedText = segments.map(segment => {
+          const speakerId = segment.speaker_id || 'unknown';
+          const speakerName = speakerNames[speakerId] || `Người ${speakerId.replace('speaker_', '')}`;
+          return `${speakerName}: ${segment.text}`;
+        }).join('\n\n');
+        
+        setEditedText(formattedText);
+      } else {
+        // Nếu đang ở chế độ words, sử dụng văn bản gốc
+        const currentText = editedTranscription ? editedTranscription.text : transcription.text;
+        setEditedText(currentText);
+      }
+    } else {
+      // Thoát khỏi chế độ chỉnh sửa mà không lưu
+      setEditMode(false);
+    }
   };
   
+  // Tách renderTextWithHighlight thành hàm tiện ích riêng
+  const renderTextWithHighlight = (text) => {
+    if (!searchTerm || !text) return text;
+    
+    try {
+      const regex = new RegExp(`(${searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+      const parts = text.split(regex);
+      
+      return (
+        <>
+          {parts.map((part, i) => (
+            part.toLowerCase() === searchTerm.toLowerCase() ? (
+              <span 
+                key={i}
+                style={{
+                  backgroundColor: 'rgba(255, 193, 7, 0.5)',
+                  padding: '0 2px',
+                  borderRadius: '3px',
+                  fontWeight: 'bold'
+                }}
+              >
+                {part}
+              </span>
+            ) : part
+          ))}
+        </>
+      );
+    } catch (error) {
+      console.error('Lỗi khi highlight từ khóa:', error);
+      return text;
+    }
+  };
+  
+  // Sửa đổi hàm saveEditedText để cập nhật rõ ràng hơn và thêm logs
   const saveEditedText = () => {
-    setEditMode(false);
+    try {
+      console.log("Bắt đầu lưu văn bản đã chỉnh sửa...");
+      
+      // Tạo bản sao của transcription để cập nhật
+      const updatedTranscription = JSON.parse(JSON.stringify(
+        editedTranscription || transcription
+      ));
+      
+      console.log("Văn bản gốc:", updatedTranscription.text ? updatedTranscription.text.substring(0, 50) + "..." : "không có");
+      console.log("Văn bản mới:", editedText ? editedText.substring(0, 50) + "..." : "không có");
+      
+      // Cập nhật văn bản trong bản sao
+      updatedTranscription.text = editedText;
+      
+      // Nếu đang ở chế độ dialogue, cần phân tích để cập nhật words
+      if (displayMode === 'dialogue') {
+        try {
+          // Phân tích văn bản để cập nhật theo định dạng dialogue
+          console.log("Lưu văn bản ở chế độ dialogue");
+          
+          // Nếu có words, cập nhật text cho words (đơn giản)
+          if (updatedTranscription.words && updatedTranscription.words.length > 0) {
+            const fullText = editedText.trim();
+            updatedTranscription.text = fullText;
+          }
+        } catch (parseError) {
+          console.error("Lỗi khi phân tích văn bản dialogue:", parseError);
+        }
+      } else {
+        // Ở chế độ words, chỉ cần cập nhật text
+        console.log("Lưu văn bản ở chế độ words");
+      }
+      
+      console.log("Đã cập nhật văn bản thành:", updatedTranscription.text.substring(0, 50) + "...");
+      
+      // Đảm bảo các thành phần quan trọng của transcription được giữ lại
+      if (transcription.language_code) {
+        updatedTranscription.language_code = transcription.language_code;
+      }
+      if (transcription.language_probability) {
+        updatedTranscription.language_probability = transcription.language_probability;
+      }
+      if (transcription.audio_duration) {
+        updatedTranscription.audio_duration = transcription.audio_duration;
+      }
+      
+      // Lưu bản sao đã cập nhật vào state bằng cách đợi state được cập nhật hoàn tất
+      setEditedTranscription(updatedTranscription);
+      
+      // Thoát khỏi chế độ chỉnh sửa
+      setEditMode(false);
+      
+      // Hiển thị thông báo thành công sau khi cập nhật state
+      showToastMessage('Đã lưu văn bản chỉnh sửa');
+      
+      // Log để xác nhận cập nhật đã thành công
+      console.log("Văn bản sau khi lưu:", updatedTranscription.text.substring(0, 50) + "...");
+    } catch (error) {
+      console.error('Lỗi khi lưu văn bản:', error);
+      showToastMessage('Lỗi khi lưu văn bản: ' + error.message);
+    }
   };
   
   const handleFontSizeChange = (e) => {
@@ -1000,11 +1156,14 @@ const TranscriptionOutput = ({
 
   // Cải thiện renderWords để highlight tốt hơn các từ khớp với tìm kiếm
   const renderWords = () => {
-    if (!transcription.words || transcription.words.length === 0) {
-      return transcription.text;
+    // Sử dụng transcription đã chỉnh sửa nếu có
+    const currentTranscription = editedTranscription || transcription;
+    
+    if (!currentTranscription.words || currentTranscription.words.length === 0) {
+      return currentTranscription.text;
     }
     
-    return transcription.words.map((word, index) => {
+    return currentTranscription.words.map((word, index) => {
       if (word.type === 'spacing') {
         return ' ';
       }
@@ -1059,11 +1218,15 @@ const TranscriptionOutput = ({
 
   // Cải thiện renderDialogue để highlight tốt hơn các đoạn khớp với tìm kiếm
   const renderDialogue = () => {
-    if (!transcription.words || transcription.words.length === 0) {
-      return <div>{transcription.text}</div>;
+    // Sử dụng transcription đã chỉnh sửa nếu có
+    const currentTranscription = editedTranscription || transcription;
+    
+    if (!currentTranscription.words || currentTranscription.words.length === 0) {
+      // Nếu không có words, hiển thị văn bản thô
+      return <div>{currentTranscription.text}</div>;
     }
 
-    // Nhóm từ theo speaker và thời gian
+    // Lấy segments từ dữ liệu hiện tại
     const segments = getSegments();
     
     // Kiểm tra lọc speaker
@@ -1072,95 +1235,73 @@ const TranscriptionOutput = ({
       return segment.speaker_id && filteredSpeakers.includes(segment.speaker_id);
     });
     
+    // Log để debug
+    console.log(`Hiển thị ${filteredSegments.length} segments từ: ${currentTranscription === editedTranscription ? 'văn bản đã chỉnh sửa' : 'văn bản gốc'}`);
+    
     // Hiển thị các segments
     return (
       <DialogueContainer>
-        {filteredSegments.map((segment, index) => {
-          // Kiểm tra tìm kiếm
-          const matchesSearch = searchTerm && 
-                              segment.text && 
-                              segment.text.toLowerCase().includes(searchTerm.toLowerCase());
-          
-          const speakerNum = segment.speaker_id ? segment.speaker_id.replace('speaker_', '') : 'U';
-          const speakerColors = ['#6c5ce7', '#e84393', '#00b894', '#fdcb6e', '#e17055'];
-          const avatarColor = speakerColors[parseInt(speakerNum) % speakerColors.length];
-          
-          // Kiểm tra xem đoạn này có đang phát không
-          const isCurrentlyPlaying = index === currentSegmentIndex;
-          
-          const renderTextWithHighlight = () => {
-            if (!searchTerm || !segment.text) return segment.text;
+        {filteredSegments.length > 0 ? (
+          filteredSegments.map((segment, index) => {
+            // Kiểm tra tìm kiếm
+            const matchesSearch = searchTerm && 
+                                segment.text && 
+                                segment.text.toLowerCase().includes(searchTerm.toLowerCase());
             
-            try {
-              const regex = new RegExp(`(${searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-              const parts = segment.text.split(regex);
-              
-              return (
-                <>
-                  {parts.map((part, i) => {
-                    return (
-                      part.toLowerCase() === searchTerm.toLowerCase() ? (
-                        <span 
-                          key={i}
-                          style={{
-                            backgroundColor: 'rgba(255, 193, 7, 0.5)',
-                            padding: '0 2px',
-                            borderRadius: '3px',
-                            fontWeight: 'bold'
-                          }}
-                        >
-                          {part}
-                        </span>
-                      ) : part
-                    );
-                  })}
-                </>
-              );
-            } catch (error) {
-              console.error('Lỗi khi highlight từ khóa:', error);
-              return segment.text;
-            }
-          };
-          
-          return (
-            <SpeakerSegment 
-              key={index} 
-              showBorder={index < filteredSegments.length - 1}
-              ref={el => segmentRefs.current[index] = el}
-            >
-              <SpeakerAvatar color={avatarColor}>
-                {speakerNum}
-              </SpeakerAvatar>
-              
-              <SpeakerContent>
-                <SpeakerNameComponent speakerId={segment.speaker_id} index={index} />
-                <TimeRange>
-                  {segment.start !== undefined && segment.end !== undefined && 
-                    `${formatTime(segment.start)} - ${formatTime(segment.end)}`}
-                </TimeRange>
+            const speakerNum = segment.speaker_id ? segment.speaker_id.replace('speaker_', '') : 'U';
+            const speakerColors = ['#6c5ce7', '#e84393', '#00b894', '#fdcb6e', '#e17055'];
+            const avatarColor = speakerColors[parseInt(speakerNum) % speakerColors.length];
+            
+            // Kiểm tra xem đoạn này có đang phát không
+            const isCurrentlyPlaying = index === currentSegmentIndex;
+            
+            return (
+              <SpeakerSegment 
+                key={index} 
+                showBorder={index < filteredSegments.length - 1}
+                ref={el => segmentRefs.current[index] = el}
+              >
+                <SpeakerAvatar color={avatarColor}>
+                  {speakerNum}
+                </SpeakerAvatar>
                 
-                <SpeakerText 
-                  fontSize={fontSize}
-                  isCurrentlyPlaying={isCurrentlyPlaying}
-                  style={{
-                    backgroundColor: matchesSearch 
-                      ? 'rgba(255, 193, 7, 0.15)'
-                      : isCurrentlyPlaying 
-                        ? 'rgba(255, 152, 0, 0.1)' 
-                        : 'transparent',
-                    padding: matchesSearch || isCurrentlyPlaying ? '0.5rem' : '0',
-                    borderRadius: matchesSearch || isCurrentlyPlaying ? '4px' : '0',
-                    borderLeft: isCurrentlyPlaying ? '3px solid rgba(255, 152, 0, 0.7)' : 
-                               matchesSearch ? '3px solid rgba(255, 193, 7, 0.7)' : 'none'
-                  }}
-                  onClick={() => handleSegmentClick(segment, index)}
-                >
-                  {renderTextWithHighlight()}
-                </SpeakerText>
-              </SpeakerContent>
-            </SpeakerSegment>
-          );
-        })}
+                <SpeakerContent>
+                  <SpeakerNameComponent speakerId={segment.speaker_id} index={index} />
+                  <TimeRange>
+                    {segment.start !== undefined && segment.end !== undefined && 
+                      `${formatTime(segment.start)} - ${formatTime(segment.end)}`}
+                  </TimeRange>
+                  
+                  <SpeakerText 
+                    fontSize={fontSize}
+                    isCurrentlyPlaying={isCurrentlyPlaying}
+                    style={{
+                      backgroundColor: matchesSearch 
+                        ? 'rgba(255, 193, 7, 0.15)'
+                        : isCurrentlyPlaying 
+                          ? 'rgba(255, 152, 0, 0.1)' 
+                          : 'transparent',
+                      padding: matchesSearch || isCurrentlyPlaying ? '0.5rem' : '0',
+                      borderRadius: matchesSearch || isCurrentlyPlaying ? '4px' : '0',
+                      borderLeft: isCurrentlyPlaying ? '3px solid rgba(255, 152, 0, 0.7)' : 
+                                matchesSearch ? '3px solid rgba(255, 193, 7, 0.7)' : 'none'
+                    }}
+                    onClick={() => handleSegmentClick(segment, index)}
+                  >
+                    {renderTextWithHighlight(segment.text)}
+                  </SpeakerText>
+                </SpeakerContent>
+              </SpeakerSegment>
+            );
+          })
+        ) : (
+          // Hiển thị thông báo nếu không có segments nào
+          <div style={{ textAlign: 'center', padding: '2rem', color: '#aaa' }}>
+            {filteredSpeakers.length > 0 ? 
+              'Không có đoạn nào khớp với bộ lọc người nói.' :
+              'Không có đoạn hội thoại nào để hiển thị.'}
+          </div>
+        )}
       </DialogueContainer>
     );
   };
@@ -1247,9 +1388,13 @@ const TranscriptionOutput = ({
     }
   };
   
-  // Thêm lại hàm getSegments
+  // Thêm lại hàm getSegments với sự hỗ trợ cho editedTranscription
   const getSegments = () => {
-    if (!transcription.words || transcription.words.length === 0) {
+    // Sử dụng transcription đã chỉnh sửa nếu có
+    const currentTranscription = editedTranscription || transcription;
+    
+    if (!currentTranscription.words || currentTranscription.words.length === 0) {
+      console.log("Không có words trong transcript để tạo segments");
       return [];
     }
 
@@ -1258,7 +1403,7 @@ const TranscriptionOutput = ({
     let currentSegment = null;
     let currentText = '';
     
-    transcription.words.forEach((word, index) => {
+    currentTranscription.words.forEach((word, index) => {
       // Bỏ qua khoảng trắng trong quá trình xử lý
       if (word.type === 'spacing') {
         currentText += ' ';
@@ -1388,42 +1533,9 @@ const TranscriptionOutput = ({
   const toggleFilters = () => {
     setShowFilters(!showFilters);
   };
-
-  // Thêm hàm renderTextWithHighlight để highlight từ khóa trong văn bản
-  const renderTextWithHighlight = (segment) => {
-    if (!searchTerm || !segment.text) return segment.text;
-    
-    try {
-      const parts = segment.text.split(new RegExp(`(${searchTerm})`, 'gi'));
-      
-        return (
-        <>
-          {parts.map((part, i) => {
-            const isMatch = part.toLowerCase() === searchTerm.toLowerCase();
-            return isMatch ? (
-              <span 
-                key={i}
-                style={{
-                  backgroundColor: 'rgba(255, 193, 7, 0.5)',
-                  padding: '0 2px',
-                  borderRadius: '3px',
-                  fontWeight: 'bold'
-                }}
-              >
-                {part}
-              </span>
-            ) : part;
-          })}
-        </>
-      );
-    } catch (error) {
-      console.error('Lỗi khi highlight từ khóa:', error);
-      return segment.text;
-    }
-  };
-
+  
   // Lấy segments từ hàm getSegments() để tránh lỗi segments is not defined
-    const segments = getSegments();
+  const segments = getSegments();
     
   // Cập nhật phần lọc đoạn hội thoại cho cả hai trang - THỐNG NHẤT LOGIC GIỮA CÁC TRANG
   const getFilteredSegments = () => {
@@ -1611,19 +1723,22 @@ const TranscriptionOutput = ({
                   const colors = ['#6c5ce7', '#e84393', '#00b894', '#fdcb6e', '#e17055'];
                   const color = colors[index % colors.length];
                       
-                      // Trạng thái active phụ thuộc vào việc có trong danh sách lọc hay không
-                      const isActive = filteredSpeakers.includes(speaker);
+                  // Trạng thái active phụ thuộc vào việc có trong danh sách lọc hay không
+                  const isActive = filteredSpeakers.includes(speaker);
+                  
+                  // Sử dụng tên đã chỉnh sửa từ speakerNames
+                  const speakerName = speakerNames[speaker] || `Người ${speakerNum}`;
                   
                   return (
                     <SpeakerFilterButton
                       key={speaker}
                       variant="outline-primary"
                       size="sm"
-                          isActive={isActive}
+                      isActive={isActive}
                       color={color}
                       onClick={() => toggleSpeakerFilter(speaker)}
                     >
-                      <FaUser size={10} /> Người {speakerNum}
+                      {speakerName}
                     </SpeakerFilterButton>
                   );
                 })}
@@ -1682,7 +1797,7 @@ const TranscriptionOutput = ({
                           }}
                           onClick={() => handleSegmentClick(segment, index)}
                         >
-                          {renderTextWithHighlight(segment)}
+                          {renderTextWithHighlight(segment.text)}
                         </SpeakerText>
                       </SpeakerContent>
                     </SpeakerSegment>
@@ -1782,15 +1897,15 @@ const TranscriptionOutput = ({
           <div className="d-flex align-items-center">
             <div className="me-3">
               <Badge bg="primary" className="me-2">
-                {transcription?.language_code?.toUpperCase() || 'N/A'}
+                {(editedTranscription || transcription)?.language_code?.toUpperCase() || 'N/A'}
               </Badge>
-              {transcription?.language_probability && (
+              {(editedTranscription || transcription)?.language_probability && (
                 <Badge bg="info">
-                  Độ tin cậy: {Math.round(transcription.language_probability * 100)}%
+                  Độ tin cậy: {Math.round((editedTranscription || transcription).language_probability * 100)}%
                 </Badge>
               )}
             </div>
-            {transcription && (
+            {(editedTranscription || transcription) && !editMode && (
               <Button 
                 variant="outline-primary" 
                 size="sm"
@@ -1798,148 +1913,195 @@ const TranscriptionOutput = ({
                 className="d-flex align-items-center"
                 style={{ height: '34px' }}
               >
-                <FaExpand className="me-1" /> Toàn màn hình
+                <FaExpand className="me-1" />
               </Button>
             )}
           </div>
         </div>
         
-        {/* Nút ẩn/hiện phần lọc */}
-        {(transcription && transcription.speakers && segments.length > 0) && (
-          <FilterToggleButton 
-            variant="secondary" 
-            onClick={toggleFilters}
-            title={showFilters ? "Ẩn bộ lọc" : "Hiện bộ lọc"}
-          >
-            {showFilters ? <FaAngleUp /> : <FaAngleDown />}
-          </FilterToggleButton>
-        )}
-        
-        {/* Phần bộ lọc có thể ẩn/hiện */}
-        <FilterSection isVisible={showFilters}>
-          <Row className="mb-3">
-            <Col md={4}>
-              <Form.Group>
-                <Form.Label>Tìm kiếm văn bản</Form.Label>
-                <Form.Control 
-                  type="text" 
-                  placeholder="Nhập từ khóa..."
-                  value={searchTerm}
-                  onChange={handleSearch}
-                  style={{ backgroundColor: '#2d2d42', color: '#f1f1f2', border: '1px solid #3c3c57' }}
-                />
-              </Form.Group>
-            </Col>
-            <Col md={4}>
-              <Form.Group>
-                <Form.Label>Kích thước chữ</Form.Label>
-                <Form.Select
-                  value={fontSize}
-                  onChange={handleFontSizeChange}
-                  style={{ backgroundColor: '#2d2d42', color: '#f1f1f2', border: '1px solid #3c3c57' }}
-                >
-                  <option value="0.9rem">Nhỏ</option>
-                  <option value="1.1rem">Vừa</option>
-                  <option value="1.3rem">Lớn</option>
-                  <option value="1.5rem">Rất lớn</option>
-                </Form.Select>
-              </Form.Group>
-            </Col>
-            <Col md={4}>
-              <Form.Group>
-                <Form.Label>Kiểu hiển thị</Form.Label>
-                <Form.Select 
-                  value={displayMode} 
-                  onChange={(e) => setDisplayMode(e.target.value)}
-                  style={{ backgroundColor: '#2d2d42', color: '#f1f1f2', border: '1px solid #3c3c57' }}
-                >
-                  <option value="dialogue">Đoạn hội thoại</option>
-                  <option value="words">Từng từ</option>
-                </Form.Select>
-              </Form.Group>
-            </Col>
-          </Row>
-            
-          <div className="mb-3">
-            <div className="d-flex justify-content-between align-items-center mb-2">
-              <strong>Lọc theo người nói:</strong>
-              <Button 
-                variant="link"
-                className="p-0"
-                onClick={clearSearchAndFilters}
-                style={{ color: '#a29bfe', textDecoration: 'none' }}
+        {/* Không hiển thị bộ lọc và tìm kiếm trong chế độ chỉnh sửa */}
+        {!editMode && (
+          <>
+            {/* Nút ẩn/hiện phần lọc */}
+            {((editedTranscription || transcription) && (editedTranscription || transcription).speakers && segments.length > 0) && (
+              <FilterToggleButton 
+                variant="secondary" 
+                onClick={toggleFilters}
+                title={showFilters ? "Ẩn bộ lọc" : "Hiện bộ lọc"}
               >
-                <FaRegTimesCircle className="me-1" /> Xóa tìm kiếm & lọc
-              </Button>
-            </div>
-            <SpeakerFilterContainer>
-              {speakers.map((speaker, idx) => {
-                const speakerColors = ['#6c5ce7', '#e84393', '#00b894', '#fdcb6e', '#e17055'];
-                const color = speakerColors[idx % speakerColors.length];
-                return (
-                  <SpeakerFilterButton
-                    key={speaker}
-                    variant="outline-primary"
-                    size="sm"
-                    color={color}
-                    isActive={filteredSpeakers.includes(speaker)}
-                    onClick={() => toggleSpeakerFilter(speaker)}
+                {showFilters ? <FaAngleUp /> : <FaAngleDown />}
+              </FilterToggleButton>
+            )}
+            
+            {/* Phần bộ lọc có thể ẩn/hiện */}
+            <FilterSection isVisible={showFilters}>
+              <Row className="mb-3">
+                <Col md={4}>
+                  <Form.Group>
+                    <Form.Label>Tìm kiếm văn bản</Form.Label>
+                    <Form.Control 
+                      type="text" 
+                      placeholder="Nhập từ khóa..."
+                      value={searchTerm}
+                      onChange={handleSearch}
+                      style={{ backgroundColor: '#2d2d42', color: '#f1f1f2', border: '1px solid #3c3c57' }}
+                    />
+                  </Form.Group>
+                </Col>
+                <Col md={4}>
+                  <Form.Group>
+                    <Form.Label>Kích thước chữ</Form.Label>
+                    <Form.Select
+                      value={fontSize}
+                      onChange={handleFontSizeChange}
+                      style={{ backgroundColor: '#2d2d42', color: '#f1f1f2', border: '1px solid #3c3c57' }}
+                    >
+                      <option value="0.9rem">Nhỏ</option>
+                      <option value="1.1rem">Vừa</option>
+                      <option value="1.3rem">Lớn</option>
+                      <option value="1.5rem">Rất lớn</option>
+                    </Form.Select>
+                  </Form.Group>
+                </Col>
+                <Col md={4}>
+                  <Form.Group>
+                    <Form.Label>Kiểu hiển thị</Form.Label>
+                    <Form.Select 
+                      value={displayMode} 
+                      onChange={(e) => setDisplayMode(e.target.value)}
+                      style={{ backgroundColor: '#2d2d42', color: '#f1f1f2', border: '1px solid #3c3c57' }}
+                    >
+                      <option value="dialogue">Đoạn hội thoại</option>
+                      <option value="words">Từng từ</option>
+                    </Form.Select>
+                  </Form.Group>
+                </Col>
+              </Row>
+                
+              <div className="mb-3">
+                <div className="d-flex justify-content-between align-items-center mb-2">
+                  <strong>Lọc theo người nói:</strong>
+                  <Button 
+                    variant="link"
+                    className="p-0"
+                    onClick={clearSearchAndFilters}
+                    style={{ color: '#a29bfe', textDecoration: 'none' }}
                   >
-                    {`Người ${speaker.replace('speaker_', '')}`}
-                  </SpeakerFilterButton>
-                );
-              })}
-            </SpeakerFilterContainer>
-          </div>
-        </FilterSection>
+                    <FaRegTimesCircle className="me-1" /> Xóa tìm kiếm & lọc
+                  </Button>
+                </div>
+                <SpeakerFilterContainer>
+                  {speakers.map((speaker, idx) => {
+                    const speakerColors = ['#6c5ce7', '#e84393', '#00b894', '#fdcb6e', '#e17055'];
+                    const color = speakerColors[idx % speakerColors.length];
+                    // Sử dụng tên đã chỉnh sửa từ speakerNames thay vì "Người X" cố định
+                    const speakerName = speakerNames[speaker] || `Người ${speaker.replace('speaker_', '')}`;
+                    return (
+                      <SpeakerFilterButton
+                        key={speaker}
+                        variant="outline-primary"
+                        size="sm"
+                        color={color}
+                        isActive={filteredSpeakers.includes(speaker)}
+                        onClick={() => toggleSpeakerFilter(speaker)}
+                      >
+                        {speakerName}
+                      </SpeakerFilterButton>
+                    );
+                  })}
+                </SpeakerFilterContainer>
+              </div>
+            </FilterSection>
+          </>
+        )}
         
         {/* Content container với chiều cao lớn hơn nếu ẩn bộ lọc */}
         <div style={{ 
-          maxHeight: showFilters ? '400px' : '600px',
+          maxHeight: editMode ? '600px' : (showFilters ? '400px' : '600px'),
           overflowY: 'auto',
           transition: 'max-height 0.3s ease',
           marginBottom: '1rem'
         }}>
-          {/* Render nội dung hiện tại */}
-          {displayMode === 'dialogue' ? (
-            <DialogueContainer>
-              {getFilteredSegments().map((segment, index) => {
-                // Xác định speaker number và màu an toàn
-                const speakerNum = segment.speaker_id ? segment.speaker_id.replace('speaker_', '') : '?';
-                const speakerColorIndex = speakerNum !== '?' ? parseInt(speakerNum) % defaultSpeakerColors.length : 0;
-                const avatarColor = defaultSpeakerColors[speakerColorIndex];
-                
-                return (
-                  <SpeakerSegment key={`segment-${index}`} showBorder={index < segments.length - 1}>
-                    <SpeakerAvatar color={avatarColor}>
-                      {speakerNum}
-                    </SpeakerAvatar>
-                    <SpeakerContent>
-                      <SpeakerNameComponent speakerId={segment.speaker_id} index={index} />
-                      <TimeRange>
-                        {formatTime(segment.start)} - {formatTime(segment.end)}
-                      </TimeRange>
-                      <SpeakerText 
-            fontSize={fontSize}
-                        onClick={() => handleSegmentClick(segment, index)}
-                        isCurrentlyPlaying={currentSegmentIndex === index}
-                      >
-                        {renderTextWithHighlight(segment)}
-                      </SpeakerText>
-                    </SpeakerContent>
-                  </SpeakerSegment>
-                );
-              })}
-            </DialogueContainer>
-        ) : (
-          <TranscriptionText fontSize={fontSize}>
-              {renderWords()}
-          </TranscriptionText>
-        )}
+          {/* Hiển thị chế độ chỉnh sửa */}
+          {editMode ? (
+            <EditableTranscriptionText
+              value={editedText}
+              onChange={(e) => setEditedText(e.target.value)}
+              fontSize={fontSize}
+              ref={textAreaRef}
+              style={{
+                backgroundColor: '#2d2d42',
+                color: '#f1f1f2',
+                border: '1px solid #6c5ce7',
+                borderRadius: '8px',
+                margin: '0 0 1rem 0'
+              }}
+              placeholder="Chỉnh sửa văn bản tại đây..."
+            />
+          ) : (
+            // Render nội dung hiện tại, ưu tiên dùng dữ liệu đã chỉnh sửa
+            displayMode === 'dialogue' ? (
+              <DialogueContainer>
+                {getFilteredSegments().map((segment, index) => {
+                  // Xác định speaker number và màu an toàn
+                  const speakerNum = segment.speaker_id ? segment.speaker_id.replace('speaker_', '') : '?';
+                  const speakerColorIndex = speakerNum !== '?' ? parseInt(speakerNum) % defaultSpeakerColors.length : 0;
+                  const avatarColor = defaultSpeakerColors[speakerColorIndex];
+                  
+                  // Kiểm tra xem đoạn này có đang phát không
+                  const isCurrentlyPlaying = index === currentSegmentIndex;
+                  // Kiểm tra tìm kiếm
+                  const matchesSearch = searchTerm && 
+                               segment.text && 
+                               segment.text.toLowerCase().includes(searchTerm.toLowerCase());
+                  
+                  return (
+                    <SpeakerSegment key={`segment-${index}`} showBorder={index < segments.length - 1}>
+                      <SpeakerAvatar color={avatarColor}>
+                        {speakerNum}
+                      </SpeakerAvatar>
+                      <SpeakerContent>
+                        <SpeakerNameComponent speakerId={segment.speaker_id} index={index} />
+                        <TimeRange>
+                          {formatTime(segment.start)} - {formatTime(segment.end)}
+                        </TimeRange>
+                        <SpeakerText 
+                          fontSize={fontSize}
+                          onClick={() => handleSegmentClick(segment, index)}
+                          isCurrentlyPlaying={isCurrentlyPlaying}
+                          style={{
+                            backgroundColor: matchesSearch 
+                              ? 'rgba(255, 193, 7, 0.15)'
+                              : isCurrentlyPlaying 
+                                ? 'rgba(255, 152, 0, 0.1)' 
+                                : 'transparent',
+                            padding: matchesSearch || isCurrentlyPlaying ? '0.5rem' : '0',
+                            borderRadius: matchesSearch || isCurrentlyPlaying ? '4px' : '0',
+                            borderLeft: isCurrentlyPlaying ? '3px solid rgba(255, 152, 0, 0.7)' : 
+                                      matchesSearch ? '3px solid rgba(255, 193, 7, 0.7)' : 'none'
+                          }}
+                        >
+                          {renderTextWithHighlight(segment.text)}
+                        </SpeakerText>
+                      </SpeakerContent>
+                    </SpeakerSegment>
+                  );
+                })}
+              </DialogueContainer>
+            ) : (
+              <TranscriptionText fontSize={fontSize}>
+                {/* Hiển thị văn bản đã chỉnh sửa nếu là chế độ words đơn giản */}
+                {!editedTranscription?.words || editedTranscription.words.length === 0 ? 
+                  (editedTranscription?.text || transcription.text) :
+                  renderWords()
+                }
+              </TranscriptionText>
+            )
+          )}
         </div>
         
-        {/* Audio Player */}
-        {audioUrl && (
+        {/* Audio Player - Ẩn trong chế độ chỉnh sửa */}
+        {audioUrl && !editMode && (
           <AudioPlayerContainer>
             <AudioControlsContainer>
               <PlayButton 
@@ -1964,7 +2126,7 @@ const TranscriptionOutput = ({
                   onChange={onVolumeChange}
                   style={{ width: '80px' }} 
                 />
-            </div>
+              </div>
               <Button 
                 variant="outline-secondary" 
                 size="sm" 
@@ -1977,20 +2139,20 @@ const TranscriptionOutput = ({
           </AudioPlayerContainer>
         )}
         
-          <ButtonsContainer>
+        <ButtonsContainer>
           <Button 
             variant="primary" 
             onClick={copyToClipboard}
           >
             {copied ? <FaCheck className="me-1" /> : <FaCopy className="me-1" />}
             {copied ? 'Đã sao chép' : 'Sao chép'}
-            </Button>
+          </Button>
           <Button 
             variant="success" 
             onClick={downloadTranscription}
           >
             <FaDownload className="me-1" /> Tải xuống
-            </Button>
+          </Button>
           {!editMode ? (
             <Button 
               variant="warning" 
@@ -1999,14 +2161,22 @@ const TranscriptionOutput = ({
               <FaEdit className="me-1" /> Chỉnh sửa
             </Button>
           ) : (
+            <>
               <Button 
-              variant="success" 
-              onClick={saveEditedText}
+                variant="success" 
+                onClick={saveEditedText}
               >
-              <FaSave className="me-1" /> Lưu
+                <FaSave className="me-1" /> Lưu
               </Button>
-            )}
-          </ButtonsContainer>
+              <Button 
+                variant="secondary" 
+                onClick={() => setEditMode(false)}
+              >
+                <FaRegTimesCircle className="me-1" /> Hủy
+              </Button>
+            </>
+          )}
+        </ButtonsContainer>
       </OutputContainer>
       
       {/* Toast notifications */}
@@ -2016,11 +2186,17 @@ const TranscriptionOutput = ({
           onClose={() => setShowToast(false)}
           delay={3000}
           autohide
-          bg="danger"
+          bg={toastMessage.includes('Lỗi') ? 'danger' : 'success'}
         >
           <Toast.Header closeButton={true}>
-            <FaExclamationTriangle className="me-2" />
-            <strong className="me-auto">Lỗi phát âm thanh</strong>
+            {toastMessage.includes('Lỗi') ? (
+              <FaExclamationTriangle className="me-2" />
+            ) : (
+              <FaCheck className="me-2" />
+            )}
+            <strong className="me-auto">
+              {toastMessage.includes('Lỗi') ? 'Lỗi' : 'Thông báo'}
+            </strong>
           </Toast.Header>
           <Toast.Body className="text-white">{toastMessage}</Toast.Body>
         </Toast>

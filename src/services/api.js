@@ -1,87 +1,330 @@
 import axios from 'axios';
 
-const API_URL = 'https://api.elevenlabs.io/v1/speech-to-text';
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
-/**
- * Gửi file âm thanh lên ElevenLabs API để chuyển đổi thành văn bản
- * @param {File} audioFile - File âm thanh cần chuyển đổi
- * @param {string} apiKey - API key của ElevenLabs
- * @param {Object} options - Các tùy chọn bổ sung cho API
- * @returns {Promise} Kết quả chuyển đổi
- */
-export const convertSpeechToText = async (audioFile, apiKey, options = {}) => {
-  console.log('Bắt đầu chuyển đổi với API key:', apiKey ? apiKey.substring(0, 5) + '...' : 'Không có');
+// Tạo instance axios với cấu hình chung
+const api = axios.create({
+  baseURL: API_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+// Thêm interceptor cho request
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// API authentication
+export const login = async (googleToken) => {
+  try {
+    const response = await api.post('/auth/google', { token: googleToken });
+    if (response.data.token) {
+      localStorage.setItem('token', response.data.token);
+      localStorage.setItem('user', JSON.stringify(response.data.user));
+    }
+    return response.data;
+  } catch (error) {
+    throw new Error(error.response?.data?.message || 'Đăng nhập thất bại');
+  }
+};
+
+export const logout = () => {
+  localStorage.removeItem('token');
+  localStorage.removeItem('user');
+  localStorage.removeItem('elevenlabs_api_key');
+};
+
+export const getCurrentUser = () => {
+  const userStr = localStorage.getItem('user');
+  if (userStr) {
+    const user = JSON.parse(userStr);
+    // Đảm bảo luôn có imageUrl cho avatar
+    if (!user.imageUrl && user.picture) {
+      user.imageUrl = user.picture;
+    }
+    return user;
+  }
+  return null;
+};
+
+// API key management
+export const saveApiKey = async (apiKey) => {
+  try {
+    // Lưu API key vào localStorage
+    localStorage.setItem('elevenlabs_api_key', apiKey);
+    
+    // Nếu người dùng đã đăng nhập, lưu vào database
+    const token = localStorage.getItem('token');
+    if (token) {
+      const response = await api.post('/auth/apikey', { apiKey });
+      console.log('API key saved to database:', response.data);
+      return response.data;
+    }
+    
+    return { success: true, message: 'API key saved locally' };
+  } catch (error) {
+    console.error('Error saving API key:', error);
+    // Vẫn lưu vào localStorage ngay cả khi API gọi thất bại
+    localStorage.setItem('elevenlabs_api_key', apiKey);
+    return { success: true, message: 'API key saved locally', error: error.message };
+  }
+};
+
+export const getApiKey = async () => {
+  try {
+    // Đầu tiên, kiểm tra trong localStorage
+    const localApiKey = localStorage.getItem('elevenlabs_api_key');
+    if (localApiKey) {
+      return localApiKey;
+    }
+    
+    // Nếu không có trong localStorage, thử lấy từ server nếu người dùng đã đăng nhập
+    const token = localStorage.getItem('token');
+    if (token) {
+      try {
+        const response = await api.get('/auth/me');
+        if (response.data && response.data.elevenLabsApiKey) {
+          // Lưu API key từ server vào localStorage để sử dụng sau này
+          localStorage.setItem('elevenlabs_api_key', response.data.elevenLabsApiKey);
+          return response.data.elevenLabsApiKey;
+        }
+      } catch (err) {
+        console.error('Error fetching user data:', err);
+      }
+    }
+    
+    // Nếu không có API key nào, trả về null
+    return null;
+  } catch (error) {
+    console.error('Error getting API key:', error);
+    return null;
+  }
+};
+
+// Transcription services
+export const uploadForTranscription = async (formData, onProgress) => {
+  try {
+    const response = await api.post('/transcribe', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+      onUploadProgress: (progressEvent) => {
+        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        if (onProgress) onProgress(percentCompleted);
+      },
+    });
+    return response.data;
+  } catch (error) {
+    throw new Error(error.response?.data?.message || 'Chuyển đổi thất bại');
+  }
+};
+
+export const getTranscriptHistory = async () => {
+  try {
+    const response = await api.get('/transcribe/history');
+    return response.data;
+  } catch (error) {
+    throw new Error(error.response?.data?.message || 'Lấy lịch sử thất bại');
+  }
+};
+
+export const getTranscriptDetail = async (id) => {
+  try {
+    const response = await api.get(`/transcribe/${id}`);
+    return response.data;
+  } catch (error) {
+    throw new Error(error.response?.data?.message || 'Lấy chi tiết bản ghi thất bại');
+  }
+};
+
+export const deleteTranscript = async (id) => {
+  try {
+    const response = await api.delete(`/transcribe/${id}`);
+    return response.data;
+  } catch (error) {
+    throw new Error(error.response?.data?.message || 'Xóa bản ghi thất bại');
+  }
+};
+
+// ElevenLabs API proxy
+export const transcribeWithElevenLabs = async (file, options = {}) => {
+  const apiKey = await getApiKey();
+  if (!apiKey) {
+    throw new Error('Chưa cấu hình ElevenLabs API key. Vui lòng nhập API key của bạn.');
+  }
   
   const formData = new FormData();
-  formData.append('file', audioFile);
-  formData.append('model_id', options.modelId || 'scribe_v1');
+  formData.append('file', file);
+  formData.append('model_id', options.model_id || 'scribe_v1');
   
-  if (options.languageCode) {
-    formData.append('language_code', options.languageCode);
-    console.log('Sử dụng ngôn ngữ:', options.languageCode);
+  if (options.diarize) {
+    formData.append('diarize', 'true');
   }
   
   if (options.numSpeakers) {
-    formData.append('num_speakers', options.numSpeakers);
-  } else {
-    formData.append('num_speakers', '20');
+    formData.append('num_speakers', options.numSpeakers.toString());
   }
   
-  if (options.timestampsGranularity) {
-    formData.append('timestamps_granularity', options.timestampsGranularity);
+  if (options.language_code) {
+    formData.append('language_code', options.language_code);
   }
   
-  formData.append('diarize', 'true');
-  formData.append('tag_audio_events', (options.tagAudioEvents !== undefined ? options.tagAudioEvents : true).toString());
-
-  console.log('File được gửi:', {
-    name: audioFile.name,
-    type: audioFile.type,
-    size: audioFile.size + ' bytes',
-  });
-
   try {
-    console.log('Gửi request đến ElevenLabs API:', API_URL);
-    
-    const config = {
+    // Gọi trực tiếp đến ElevenLabs API
+    const response = await axios.post('https://api.elevenlabs.io/v1/speech-to-text', formData, {
       headers: {
-        'Accept': 'application/json',
-        'xi-api-key': apiKey.trim()
+        'Content-Type': 'multipart/form-data',
+        'xi-api-key': apiKey,
+      },
+      onUploadProgress: (progressEvent) => {
+        if (options.onProgress) {
+          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          options.onProgress(percentCompleted);
+        }
       }
-    };
-    
-    console.log('Headers được thiết lập:', {
-      'Accept': 'application/json',
-      'xi-api-key': apiKey ? `${apiKey.substring(0, 5)}...` : 'Không có'
     });
     
-    for (let [key, value] of formData.entries()) {
-      console.log(`${key}: ${value instanceof File ? value.name : value}`);
-    }
-    
-    const response = await axios.post(API_URL, formData, config);
-    
-    console.log('Phản hồi thành công từ API:', response.status);
     return response.data;
   } catch (error) {
-    console.error('Lỗi khi gọi API Speech-to-Text:', error);
+    if (error.response && error.response.status === 401) {
+      throw new Error('API key không hợp lệ. Vui lòng kiểm tra và cập nhật lại API key của bạn.');
+    } else if (error.response && error.response.data) {
+      throw new Error(`Lỗi từ ElevenLabs API: ${error.response.data.detail || error.response.data.message || JSON.stringify(error.response.data)}`);
+    }
+    throw new Error(error.message || 'Đã có lỗi xảy ra khi gọi ElevenLabs API');
+  }
+};
+
+// Thêm các hàm liên quan đến lịch sử chuyển đổi
+
+// Lưu lịch sử chuyển đổi mới vào DB
+export const saveTranscriptionHistory = async (transcriptionData) => {
+  try {
+    // Đảm bảo có userId (nếu đã đăng nhập)
+    const apiKey = await getApiKey();
     
-    if (error.response) {
-      console.error('Mã lỗi:', error.response.status);
-      console.error('Dữ liệu lỗi:', error.response.data);
-      
-      if (error.response.status === 401) {
-        console.error('Lỗi xác thực (401) - API key không hợp lệ hoặc không được cung cấp');
-        console.error('Vui lòng kiểm tra API key tại trang: https://elevenlabs.io/app/account');
-      } else if (error.response.status === 400) {
-        console.error('Lỗi định dạng request (400) - Kiểm tra tham số gửi đi');
-      }
-    } else if (error.request) {
-      console.error('Không nhận được phản hồi từ server');
-    } else {
-      console.error('Lỗi cấu hình request:', error.message);
+    // Chuẩn bị dữ liệu để lưu
+    const historyItem = {
+      fileName: transcriptionData.fileName || 'Không có tên',
+      language: transcriptionData.language_code || 'unknown',
+      duration: transcriptionData.audio_duration || 0,
+      textPreview: transcriptionData.text ? transcriptionData.text.substring(0, 100) + '...' : 'Không có nội dung',
+      createdAt: new Date().toISOString(),
+      transcription: transcriptionData
+    };
+    
+    // Lấy lịch sử hiện tại từ localStorage
+    let history = JSON.parse(localStorage.getItem('transcriptionHistory') || '[]');
+    
+    // Thêm vào đầu mảng (vị trí gần nhất)
+    history.unshift(historyItem);
+    
+    // Chỉ giữ 5 mục gần nhất
+    if (history.length > 5) {
+      history = history.slice(0, 5);
     }
     
-    throw error;
+    // Lưu trở lại localStorage
+    localStorage.setItem('transcriptionHistory', JSON.stringify(history));
+    
+    // Nếu có API key (đã đăng nhập), đồng bộ lên server
+    if (apiKey) {
+      // Kết nối với endpoint API để lưu lịch sử (triển khai sau)
+      // Có thể triển khai phần này khi có backend API
+      console.log('Lưu lịch sử lên server với API key:', apiKey);
+    }
+    
+    return { success: true, history };
+  } catch (error) {
+    console.error('Lỗi khi lưu lịch sử chuyển đổi:', error);
+    return { success: false, error: error.message };
   }
-}; 
+};
+
+// Lấy lịch sử chuyển đổi từ DB
+export const getTranscriptionHistory = async () => {
+  try {
+    // Lấy từ localStorage trước
+    const localHistory = JSON.parse(localStorage.getItem('transcriptionHistory') || '[]');
+    
+    // Đảm bảo có userId (nếu đã đăng nhập)
+    const apiKey = await getApiKey();
+    
+    // Nếu có API key (đã đăng nhập), đồng bộ từ server
+    if (apiKey) {
+      // Kết nối với endpoint API để lấy lịch sử (triển khai sau)
+      // Có thể triển khai phần này khi có backend API
+      console.log('Lấy lịch sử từ server với API key:', apiKey);
+      
+      // Giả lập lấy dữ liệu từ server - khi có API thực, thay đoạn này
+      // const serverHistory = await axios.get('/api/transcription-history', {
+      //   headers: { 'xi-api-key': apiKey }
+      // });
+      // return serverHistory.data;
+    }
+    
+    return { success: true, history: localHistory };
+  } catch (error) {
+    console.error('Lỗi khi lấy lịch sử chuyển đổi:', error);
+    return { success: false, error: error.message, history: [] };
+  }
+};
+
+// Xóa một mục trong lịch sử chuyển đổi
+export const deleteTranscriptionHistoryItem = async (itemId) => {
+  try {
+    // Lấy lịch sử hiện tại từ localStorage
+    let history = JSON.parse(localStorage.getItem('transcriptionHistory') || '[]');
+    
+    // Lọc bỏ mục cần xóa
+    history = history.filter((item, index) => index !== itemId);
+    
+    // Lưu trở lại localStorage
+    localStorage.setItem('transcriptionHistory', JSON.stringify(history));
+    
+    // Đảm bảo có userId (nếu đã đăng nhập)
+    const apiKey = await getApiKey();
+    
+    // Nếu có API key (đã đăng nhập), đồng bộ lên server
+    if (apiKey) {
+      // Kết nối với endpoint API để xóa lịch sử (triển khai sau)
+      // Có thể triển khai phần này khi có backend API
+      console.log('Xóa lịch sử trên server với API key:', apiKey);
+    }
+    
+    return { success: true, history };
+  } catch (error) {
+    console.error('Lỗi khi xóa mục lịch sử chuyển đổi:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+// Xóa toàn bộ lịch sử chuyển đổi
+export const clearTranscriptionHistory = async () => {
+  try {
+    // Xóa khỏi localStorage
+    localStorage.removeItem('transcriptionHistory');
+    
+    // Đảm bảo có userId (nếu đã đăng nhập)
+    const apiKey = await getApiKey();
+    
+    // Nếu có API key (đã đăng nhập), đồng bộ lên server
+    if (apiKey) {
+      // Kết nối với endpoint API để xóa toàn bộ lịch sử (triển khai sau)
+      // Có thể triển khai phần này khi có backend API
+      console.log('Xóa toàn bộ lịch sử trên server với API key:', apiKey);
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Lỗi khi xóa toàn bộ lịch sử chuyển đổi:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+export default api; 

@@ -3,6 +3,7 @@ import { FaMicrophone, FaFileUpload, FaTrash, FaUpload, FaPlay, FaPause } from '
 import styled from 'styled-components';
 import { Button, ProgressBar, Form, Alert, Spinner } from 'react-bootstrap';
 import AudioRecorder from './AudioRecorder';
+import { transcribeWithElevenLabs } from '../services/api';
 import axios from 'axios';
 
 const UploaderContainer = styled.div`
@@ -191,15 +192,6 @@ const AudioUploader = ({ onFileSelect, onTranscriptionComplete, submitButtonText
       return;
     }
     
-    // Chuẩn bị FormData
-    const formData = new FormData();
-    formData.append('file', fileToUpload);
-    formData.append('model_id', 'scribe_v1');
-    
-    // Thêm tham số diarize và num_speakers
-    formData.append('diarize', 'true');
-    formData.append('num_speakers', '20');
-    
     try {
       setIsLoading(true);
       if (onTranscriptionComplete) {
@@ -208,31 +200,25 @@ const AudioUploader = ({ onFileSelect, onTranscriptionComplete, submitButtonText
       }
       setError(null);
       
-      // Sử dụng API key từ biến môi trường
-      const apiKey = process.env.REACT_APP_ELEVENLABS_API_KEY;
-      if (!apiKey) {
-        throw new Error('API key không được cấu hình. Vui lòng thêm REACT_APP_ELEVENLABS_API_KEY vào file .env');
-      }
-      
-      console.log('Bắt đầu gửi yêu cầu đến ElevenLabs API...');
-      
-      // Gọi API ElevenLabs
-      const response = await axios.post('https://api.elevenlabs.io/v1/speech-to-text', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-          'xi-api-key': apiKey,
-        },
-        onUploadProgress: (progressEvent) => {
-          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+      // Cấu hình transcribe options
+      const options = {
+        model_id: 'scribe_v1',
+        diarize: true,
+        numSpeakers: 20,
+        language_code: 'vi',
+        onProgress: (percentCompleted) => {
           setUploadProgress(percentCompleted);
         }
-      });
+      };
       
-      console.log('Kết quả API:', response.data);
+      // Gọi API qua helper function
+      const response = await transcribeWithElevenLabs(fileToUpload, options);
+      
+      console.log('Kết quả API:', response);
       
       // Truyền kết quả lên component cha
       if (onTranscriptionComplete) {
-        onTranscriptionComplete(response.data, audioUrl);
+        onTranscriptionComplete(response, audioUrl);
       }
       
       setIsLoading(false);
@@ -242,26 +228,15 @@ const AudioUploader = ({ onFileSelect, onTranscriptionComplete, submitButtonText
       
       // Hiển thị lỗi chi tiết hơn
       console.error('Error during transcription:', err);
-      let errorMessage = 'Đã xảy ra lỗi khi chuyển đổi.';
+      let errorMessage = err.message || 'Đã xảy ra lỗi khi chuyển đổi.';
       
-      if (err.response) {
-        // Lỗi từ server
-        console.error('Server error data:', err.response.data);
-        errorMessage = `Lỗi ${err.response.status}: ${err.response.data.detail || err.response.data.message || JSON.stringify(err.response.data)}`;
-      } else if (err.request) {
-        // Không nhận được phản hồi
-        errorMessage = 'Không nhận được phản hồi từ server. Vui lòng kiểm tra kết nối mạng.';
-      } else if (err.message) {
-        // Lỗi khác
-        errorMessage = err.message;
+      // Thông báo lỗi cho component cha
+      if (onTranscriptionComplete) {
+        onTranscriptionComplete(null, audioUrl, err, false);
       }
       
       setError(errorMessage);
-      
-      // Truyền lỗi lên component cha
-      if (onTranscriptionComplete) {
-        onTranscriptionComplete(null, audioUrl, { message: errorMessage });
-      }
+      setUploadProgress(0);
     }
   };
 

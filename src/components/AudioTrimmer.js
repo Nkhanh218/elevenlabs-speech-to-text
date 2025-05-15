@@ -1,7 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
 import { Button, Form, Row, Col, ProgressBar } from 'react-bootstrap';
-import { FaPlay, FaPause, FaCut, FaSave } from 'react-icons/fa';
+import { FaPlay, FaPause, FaCut, FaSave, FaDownload } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 
 const TrimmerContainer = styled.div`
@@ -128,12 +128,21 @@ const AudioTrimmer = ({ audioFile, onSaveTrimmed }) => {
   const [audioUrl, setAudioUrl] = useState('');
   const [processing, setProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [trimmedUrl, setTrimmedUrl] = useState(null);
+  const [trimmedFile, setTrimmedFile] = useState(null);
   
   const audioRef = useRef(null);
   const canvasRef = useRef(null);
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
   const sourceRef = useRef(null);
+  
+  // Thêm biến tham chiếu để theo dõi vị trí và cập nhật trực tiếp DOM
+  const sliderTrackRef = useRef(null);
+  const startHandleRef = useRef(null);
+  const endHandleRef = useRef(null);
+  const sliderRangeRef = useRef(null);
+  const lastMoveTimeRef = useRef(0);
   
   useEffect(() => {
     if (audioFile) {
@@ -358,29 +367,55 @@ const AudioTrimmer = ({ audioFile, onSaveTrimmed }) => {
     }
   };
   
-  const handleMouseDown = (handle) => {
-    setIsDragging(handle);
-  };
-  
-  const handleMouseUp = () => {
-    setIsDragging(null);
-  };
-  
-  const handleMouseMove = (e) => {
+  // Áp dụng throttling và tối ưu hóa handleMouseMove
+  const handleMouseMove = useCallback((e) => {
     if (!isDragging || !duration) return;
+    
+    // Áp dụng throttle để hạn chế số lần cập nhật (mỗi 16ms ~ 60fps)
+    const now = Date.now();
+    if (now - lastMoveTimeRef.current < 16) return;
+    lastMoveTimeRef.current = now;
     
     const container = e.currentTarget;
     const rect = container.getBoundingClientRect();
     const x = e.clientX - rect.left;
-    const percentage = (x / rect.width) * 100;
+    const percentage = Math.max(0, Math.min(100, (x / rect.width) * 100));
     const time = (percentage / 100) * duration;
     
     if (isDragging === 'start' && time < endTime) {
+      // Cập nhật trực tiếp DOM trước khi cập nhật state để có cảm giác mượt mà hơn
+      if (startHandleRef.current) {
+        startHandleRef.current.style.left = `${percentage}%`;
+      }
+      if (sliderRangeRef.current) {
+        sliderRangeRef.current.style.left = `${percentage}%`;
+        sliderRangeRef.current.style.width = `${(endTime / duration * 100) - percentage}%`;
+      }
+      
       setStartTime(Math.max(0, time));
     } else if (isDragging === 'end' && time > startTime) {
+      // Cập nhật trực tiếp DOM trước khi cập nhật state
+      if (endHandleRef.current) {
+        endHandleRef.current.style.left = `${percentage}%`;
+      }
+      if (sliderRangeRef.current) {
+        sliderRangeRef.current.style.width = `${percentage - (startTime / duration * 100)}%`;
+      }
+      
       setEndTime(Math.min(duration, time));
     }
-  };
+  }, [isDragging, duration, startTime, endTime]);
+  
+  // Thêm useCallback để tối ưu hóa các handlers khác
+  const handleMouseDown = useCallback((handle) => {
+    setIsDragging(handle);
+    document.body.style.userSelect = 'none'; // Ngăn chặn lựa chọn văn bản khi kéo
+  }, []);
+  
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(null);
+    document.body.style.userSelect = ''; // Khôi phục lựa chọn văn bản
+  }, []);
   
   const handleWaveformClick = (e) => {
     if (!duration) return;
@@ -465,13 +500,18 @@ const AudioTrimmer = ({ audioFile, onSaveTrimmed }) => {
       
       // Create a File object with the original name
       const fileName = audioFile.name.replace(/\.[^/.]+$/, "") + "_trimmed." + audioFile.name.split('.').pop();
-      const trimmedFile = new File([blob], fileName, { type: audioFile.type });
+      const newTrimmedFile = new File([blob], fileName, { type: audioFile.type });
+      
+      // Create URL for download
+      const url = URL.createObjectURL(blob);
+      setTrimmedUrl(url);
+      setTrimmedFile(newTrimmedFile);
       
       // Finish progress
       setProgress(100);
       
       // Call the callback with the trimmed file
-      onSaveTrimmed(trimmedFile);
+      onSaveTrimmed(newTrimmedFile);
       
       // Clean up interval
       clearInterval(interval);
@@ -551,6 +591,79 @@ const AudioTrimmer = ({ audioFile, onSaveTrimmed }) => {
     return () => clearTimeout(timer);
   }, []);
 
+  // Hàm xử lý tải xuống file đã cắt
+  const handleDownload = () => {
+    if (!trimmedUrl || !trimmedFile) {
+      toast.error('Vui lòng cắt audio/video trước khi tải xuống', {
+        position: "top-right",
+        autoClose: 3000
+      });
+      return;
+    }
+    
+    const a = document.createElement('a');
+    a.href = trimmedUrl;
+    a.download = trimmedFile.name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    
+    toast.success('Đang tải xuống...', {
+      position: "top-right",
+      autoClose: 2000
+    });
+  };
+
+  // Thêm handler cho sự kiện di chuột toàn cục
+  useEffect(() => {
+    const globalMouseMoveHandler = (e) => {
+      if (isDragging && sliderTrackRef.current) {
+        const rect = sliderTrackRef.current.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const percentage = Math.max(0, Math.min(100, (x / rect.width) * 100));
+        const time = (percentage / 100) * duration;
+        
+        // Xử lý tương tự như handleMouseMove nhưng cho sự kiện toàn cục
+        if (isDragging === 'start' && time < endTime) {
+          if (startHandleRef.current) {
+            startHandleRef.current.style.left = `${percentage}%`;
+          }
+          if (sliderRangeRef.current) {
+            sliderRangeRef.current.style.left = `${percentage}%`;
+            sliderRangeRef.current.style.width = `${(endTime / duration * 100) - percentage}%`;
+          }
+          
+          setStartTime(Math.max(0, time));
+        } else if (isDragging === 'end' && time > startTime) {
+          if (endHandleRef.current) {
+            endHandleRef.current.style.left = `${percentage}%`;
+          }
+          if (sliderRangeRef.current) {
+            sliderRangeRef.current.style.width = `${percentage - (startTime / duration * 100)}%`;
+          }
+          
+          setEndTime(Math.min(duration, time));
+        }
+      }
+    };
+    
+    const globalMouseUpHandler = () => {
+      handleMouseUp();
+    };
+    
+    if (isDragging) {
+      // Thêm sự kiện toàn cục khi đang kéo
+      document.addEventListener('mousemove', globalMouseMoveHandler);
+      document.addEventListener('mouseup', globalMouseUpHandler);
+    }
+    
+    return () => {
+      // Loại bỏ sự kiện toàn cục khi cleanup
+      document.removeEventListener('mousemove', globalMouseMoveHandler);
+      document.removeEventListener('mouseup', globalMouseUpHandler);
+    };
+  }, [isDragging, duration, startTime, endTime, handleMouseUp]);
+
   return (
     <TrimmerContainer>
       <h4>Cắt Audio/Video</h4>
@@ -565,17 +678,23 @@ const AudioTrimmer = ({ audioFile, onSaveTrimmed }) => {
       </WaveformContainer>
       
       <RangeSlider 
-        onMouseMove={handleMouseMove} 
+        ref={sliderTrackRef}
         onMouseUp={handleMouseUp} 
         onMouseLeave={handleMouseUp}
       >
         <SliderTrack />
-        <SliderRange start={(startTime / duration) * 100 || 0} end={(endTime / duration) * 100 || 100} />
+        <SliderRange 
+          ref={sliderRangeRef}
+          start={(startTime / duration) * 100 || 0} 
+          end={(endTime / duration) * 100 || 100} 
+        />
         <SliderHandle 
+          ref={startHandleRef}
           position={(startTime / duration) * 100 || 0} 
           onMouseDown={() => handleMouseDown('start')} 
         />
         <SliderHandle 
+          ref={endHandleRef}
           position={(endTime / duration) * 100 || 100} 
           onMouseDown={() => handleMouseDown('end')} 
         />
@@ -639,6 +758,14 @@ const AudioTrimmer = ({ audioFile, onSaveTrimmed }) => {
           disabled={processing || startTime === 0 && endTime === duration}
         >
           <FaCut /> Cắt audio
+        </Button>
+        
+        <Button 
+          variant="info" 
+          onClick={handleDownload}
+          disabled={!trimmedUrl}
+        >
+          <FaDownload /> Tải xuống
         </Button>
       </ControlsContainer>
       

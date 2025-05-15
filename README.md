@@ -22,6 +22,8 @@ REACT_APP_ELEVENLABS_API_KEY=your_api_key_here
 - Phát âm thanh và đánh dấu từ đang phát
 - Chế độ toàn màn hình
 - Sao chép kết quả
+- Cắt audio/video để chỉ lấy phần quan trọng
+- Tải xuống audio/video đã cắt
 
 ## Xử lý lỗi
 

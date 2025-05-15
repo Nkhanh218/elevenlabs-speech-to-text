@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Container, Row, Col, Navbar, Nav, Tabs, Tab, Button } from 'react-bootstrap';
 import { ToastContainer, toast } from 'react-toastify';
 import styled, { createGlobalStyle } from 'styled-components';
@@ -6,7 +6,11 @@ import { FaMicrophone, FaScissors } from 'react-icons/fa';
 import AudioUploader from './components/AudioUploader';
 import TranscriptionOutput from './components/TranscriptionOutput';
 import AudioTrimmer from './components/AudioTrimmer';
-import { convertSpeechToText } from './services/api';
+import { convertSpeechToText, getApiKey } from './services/api';
+import { AuthProvider } from './components/AuthManager';
+import AuthManager from './components/AuthManager';
+import ApiKeyManager from './components/ApiKeyManager';
+import { GoogleOAuthProvider } from '@react-oauth/google';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'react-toastify/dist/ReactToastify.css';
 
@@ -20,17 +24,15 @@ const DEFAULT_SETTINGS = {
   numSpeakers: '2'
 };
 
-/*
- * API key của ElevenLabs
- * API key có thể lấy từ trang: https://elevenlabs.io/app/account 
- * Định dạng API key thường là một chuỗi ký tự
- * Ví dụ: "a1b2c3d4e5f6g7h8i9j0"
- */
-// Sử dụng biến môi trường để lấy API key
-const API_KEY = process.env.REACT_APP_ELEVENLABS_API_KEY;
+// Sử dụng Google Client ID từ biến môi trường hoặc giá trị mặc định
+const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID ||'324340717915-0glap5kdvp1lhgkj1n1qmckru3lufkpo.apps.googleusercontent.com';
 
-// Kiểm tra API key khi ứng dụng khởi động
-console.log('API key được cấu hình:', API_KEY ? `${API_KEY.substring(0, 5)}...` : 'Không có');
+// Debug environment variables
+console.log('Environment Variables Debug:');
+console.log('REACT_APP_GOOGLE_CLIENT_ID exists:', Boolean(process.env.REACT_APP_GOOGLE_CLIENT_ID));
+
+// Kiểm tra Google Client ID khi ứng dụng khởi động
+console.log('Google Client ID được cấu hình:', GOOGLE_CLIENT_ID ? `${GOOGLE_CLIENT_ID.substring(0, 8)}...` : 'Không có');
 
 const GlobalStyle = createGlobalStyle`
   body {
@@ -129,6 +131,23 @@ function App() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [activeTab, setActiveTab] = useState('speech-to-text');
   const [audioUrl, setAudioUrl] = useState(null);
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+  const [hasApiKey, setHasApiKey] = useState(false);
+  
+  useEffect(() => {
+    // Kiểm tra xem đã có API key chưa
+    const checkApiKey = async () => {
+      try {
+        const apiKey = await getApiKey();
+        setHasApiKey(!!apiKey);
+      } catch (error) {
+        console.error('Error checking API key:', error);
+        setHasApiKey(false);
+      }
+    };
+    
+    checkApiKey();
+  }, []);
   
   const handleFileSelect = async (file) => {
     setSelectedFile(file);
@@ -143,7 +162,16 @@ function App() {
   const handleTranscriptionComplete = (data, url, err, isLoading) => {
     setAudioUrl(url);
     setTranscription(data);
-    setError(err);
+    
+    // Kiểm tra lỗi API key
+    if (err && err.message && (err.message.includes('API key') || err.message.includes('Chưa cấu hình ElevenLabs API key'))) {
+      setShowApiKeyModal(true);
+      setError({
+        message: 'API key không được cấu hình. Vui lòng thêm ElevenLabs API key để tiếp tục.'
+      });
+    } else {
+      setError(err);
+    }
     
     // Cập nhật trạng thái loading
     if (isLoading !== undefined) {
@@ -157,7 +185,7 @@ function App() {
         position: "top-right",
         autoClose: 3000
       });
-    } else if (err) {
+    } else if (err && !err.message.includes('API key')) {
       toast.error(err.message || 'Lỗi khi chuyển đổi', {
         position: "top-right",
         autoClose: 5000
@@ -182,96 +210,142 @@ function App() {
   };
   
   return (
-    <>
-      <GlobalStyle />
-      <NavbarStyled expand="lg" variant="dark">
-        <Container>
-          <Navbar.Brand href="#">
-            <Logo>
-              <FaMicrophone size={24} />
-              <span>Speech to Text</span>
-            </Logo>
-          </Navbar.Brand>
-          <Navbar.Toggle aria-controls="basic-navbar-nav" />
-          <Navbar.Collapse id="basic-navbar-nav">
-            <Nav className="ms-auto">
-              {/* <Nav.Link href="https://elevenlabs.io/docs" target="_blank" rel="noreferrer">
-                Tài liệu
-              </Nav.Link> */}
-            </Nav>
-          </Navbar.Collapse>
-        </Container>
-      </NavbarStyled>
-      
-      <MainContainer>
-        <TabsStyled 
-          activeKey={activeTab} 
-          onSelect={handleTabChange}
-        >
-          <Tab eventKey="speech-to-text" title="Chuyển đổi Speech to Text">
-            <Row>
-              <Col lg={6}>
-                <AudioUploader 
-                  onFileSelect={handleFileSelect}
-                  onTranscriptionComplete={handleTranscriptionComplete}
-                  submitButtonText="Chuyển đổi thành văn bản"
-                />
-              </Col>
-              <Col lg={6}>
-                <TranscriptionOutput 
-                  transcription={transcription} 
-                  loading={loading} 
-                  error={error} 
-                  audioUrl={audioUrl}
-                />
-              </Col>
-            </Row>
-          </Tab>
-          <Tab eventKey="trim" title="Cắt Audio/Video">
-            <Row>
-              <Col lg={12}>
-                {selectedFile ? (
-                  <>
-                    <div className="mb-3 p-3" style={{ backgroundColor: '#1e1e2e', borderRadius: '8px' }}>
-                      <h5 className="mb-2">File đã chọn:</h5>
-                      <div className="d-flex align-items-center justify-content-between">
-                        <span>{selectedFile.name} ({(selectedFile.size / 1024 / 1024).toFixed(2)} MB)</span>
-                        <Button 
-                          variant="outline-danger" 
-                          size="sm"
-                          onClick={() => setSelectedFile(null)}
-                        >
-                          Chọn file khác
-                        </Button>
-                      </div>
-    </div>
-                    <AudioTrimmer 
-                      audioFile={selectedFile}
-                      onSaveTrimmed={handleTrimmedAudio}
-                    />
-                  </>
-                ) : (
-                  <AudioUploader 
-                    onFileSelect={handleFileSelect} 
-                    description="Tải lên file âm thanh/video để cắt"
-                    submitButtonText="Tiếp tục để cắt"
-                    showRecordButton={false}
-                  />
-                )}
-              </Col>
-            </Row>
-          </Tab>
-        </TabsStyled>
+    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+      <AuthProvider>
+        <GlobalStyle />
+        <NavbarStyled expand="lg" variant="dark">
+          <Container>
+            <Navbar.Brand href="#">
+              <Logo>
+                <FaMicrophone size={24} />
+                <span>Speech to Text</span>
+              </Logo>
+            </Navbar.Brand>
+            <Navbar.Toggle aria-controls="basic-navbar-nav" />
+            <Navbar.Collapse id="basic-navbar-nav">
+              <Nav className="ms-auto">
+                <div className="d-flex align-items-center">
+                  <AuthManager />
+                </div>
+              </Nav>
+            </Navbar.Collapse>
+          </Container>
+        </NavbarStyled>
         
+        <MainContainer>
+          {!hasApiKey && (
+            <Row className="mb-4">
+              <Col>
+                <ApiKeyManager onApiKeyUpdate={() => setHasApiKey(true)} />
+              </Col>
+            </Row>
+          )}
+          
+          <TabsStyled 
+            activeKey={activeTab} 
+            onSelect={handleTabChange}
+          >
+            <Tab eventKey="speech-to-text" title="Chuyển đổi Speech to Text">
+              <Row>
+                <Col lg={6}>
+                  <AudioUploader 
+                    onFileSelect={handleFileSelect}
+                    onTranscriptionComplete={handleTranscriptionComplete}
+                    submitButtonText="Chuyển đổi thành văn bản"
+                  />
+                  
+                  {/* Nút cấu hình API key */}
+                  {hasApiKey && (
+                    <div className="mt-3 text-center">
+                      <Button
+                        variant="outline-secondary"
+                        size="sm"
+                        onClick={() => setShowApiKeyModal(true)}
+                      >
+                        Cập nhật ElevenLabs API Key
+                      </Button>
+                    </div>
+                  )}
+                </Col>
+                <Col lg={6}>
+                  <TranscriptionOutput 
+                    transcription={transcription} 
+                    loading={loading} 
+                    error={error} 
+                    audioUrl={audioUrl}
+                  />
+                  
+                  {/* Hiển thị component ApiKeyManager khi có lỗi API key */}
+                  {error && error.message && error.message.includes('API key') && (
+                    <div className="mt-3">
+                      <ApiKeyManager 
+                        onApiKeyUpdate={() => {
+                          setHasApiKey(true);
+                          setError(null);
+                        }}
+                      />
+                    </div>
+                  )}
+                </Col>
+              </Row>
+            </Tab>
+            <Tab eventKey="trim" title="Cắt Audio/Video">
+              <Row>
+                <Col lg={12}>
+                  {selectedFile ? (
+                    <>
+                      <div className="mb-3 p-3" style={{ backgroundColor: '#1e1e2e', borderRadius: '8px' }}>
+                        <h5 className="mb-2">File đã chọn:</h5>
+                        <div className="d-flex align-items-center justify-content-between">
+                          <span>{selectedFile.name} ({(selectedFile.size / 1024 / 1024).toFixed(2)} MB)</span>
+                          <Button 
+                            variant="outline-danger" 
+                            size="sm"
+                            onClick={() => setSelectedFile(null)}
+                          >
+                            Chọn file khác
+                          </Button>
+                        </div>
+                      </div>
+                      <AudioTrimmer 
+                        audioFile={selectedFile}
+                        onSaveTrimmed={handleTrimmedAudio}
+                      />
+                    </>
+                  ) : (
+                    <AudioUploader 
+                      onFileSelect={handleFileSelect}
+                      submitButtonText="Tải lên để cắt"
+                      hideRecorder={true}
+                    />
+                  )}
+                </Col>
+              </Row>
+            </Tab>
+          </TabsStyled>
+        </MainContainer>
+        
+        {/* Modal cho API Key */}
+        {showApiKeyModal && (
+          <ApiKeyManager 
+            isModal={true} 
+            onClose={() => setShowApiKeyModal(false)}
+            onApiKeyUpdate={(apiKey) => {
+              setHasApiKey(true);
+              // Reload trang sau khi lưu API key
+              setTimeout(() => {
+                window.location.reload();
+              }, 1500);
+            }}
+          />
+        )}
+
+        <ToastContainer />
         <Footer>
-          <p>
-            {/* Powered by <a href="https://elevenlabs.io" target="_blank" rel="noreferrer">ElevenLabs API</a> */}
-          </p>
+          &copy; {new Date().getFullYear()} ElevenLabs Speech to Text. Powered by <a href="https://elevenlabs.io" target="_blank" rel="noopener noreferrer">ElevenLabs API</a>
         </Footer>
-      </MainContainer>
-      
-      <ToastContainer position="top-right" theme="dark" />
-    </>
+      </AuthProvider>
+    </GoogleOAuthProvider>
   );
 }
 
